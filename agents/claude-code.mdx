@@ -1,0 +1,85 @@
+---
+title: "Claude Code"
+description: "Anthropic's proprietary CLI/TUI agent with comprehensive sandboxing"
+---
+
+## Overview
+
+Claude Code is Anthropic's closed-source AI coding agent with CLI/TUI, VS Code extension, and desktop app modes. Notable for having built-in sandbox support.
+
+<Info>
+**Binary path:** `~/.local/bin/claude`  
+**Config:** `~/.claude/`  
+**Dependencies:** `$$require=55-integrations-optional/keychain.sb,browser-native-messaging.sb$$`
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/claude")
+    (home-subpath "/.cache/claude")
+    (home-subpath "/.claude")
+    (home-prefix "/.claude.json")
+    (home-literal "/.claude.lock")
+    (home-subpath "/.config/claude")
+    (home-subpath "/.local/state/claude")
+    (home-subpath "/.local/share/claude")
+    (home-literal "/.mcp.json")
+)
+
+(allow file-read*
+    (home-prefix "/.claude.json.")
+    (home-literal "/Library/Application Support/Claude/claude_desktop_config.json")
+    (subpath "/Library/Application Support/ClaudeCode/.claude")
+    (literal "/Library/Application Support/ClaudeCode/managed-settings.json")
+)
+```
+
+## Running in Safehouse
+
+```bash
+# With keychain and browser integration
+safehouse --enable=keychain,browser-native-messaging,network --add-dirs="$PWD" -- claude
+
+# Chrome integration for web workflows
+claude --chrome  # requires browser-native-messaging
+```
+
+## Built-in Sandbox (v2.0.24+)
+
+Claude Code has its own Bash sandbox (Linux & macOS):
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": false,
+    "network": {
+      "allowedDomains": [],
+      "allowLocalBinding": false
+    }
+  }
+}
+```
+
+<Note>
+Claude Code's internal sandbox applies **only to Bash tool commands**, not to Read, Write, Edit, MCP tools, or hooks.
+</Note>
+
+## Plugin System
+
+Claude Code has a rich plugin architecture:
+
+- **Commands** -- Custom slash commands (`.md` files)
+- **Agents** -- Custom subagent definitions
+- **Skills** -- Auto-activating capabilities (`SKILL.md`)
+- **Hooks** -- Lifecycle event scripts
+- **MCP servers** -- External tool integrations
+
+## Enterprise Features
+
+- MDM managed preferences (`com.openai.codex` on macOS)
+- Managed settings for org-level policies
+- Bash sandbox with network allowlisting
+- Hook and plugin restrictions

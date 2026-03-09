@@ -1,0 +1,531 @@
+---
+title: Integrations
+description: Optional features you can enable with --enable to extend sandbox capabilities
+---
+
+Integrations are optional sandbox profile extensions enabled via `--enable`. Each integration grants specific capabilities needed for tools, services, or workflows.
+
+## Usage
+
+```bash
+# Single integration
+safehouse --enable=docker -- docker ps
+
+# Multiple integrations
+safehouse --enable=docker,kubectl,ssh -- app
+
+# View enabled integrations
+safehouse --explain --enable=docker --stdout
+```
+
+## Container & Orchestration
+
+### docker
+
+<ParamField path="docker" type="integration">
+  Docker daemon socket access for container operations.
+  
+  **Enables:**
+  - `/var/run/docker.sock` (standard socket)
+  - `~/.docker/run/docker.sock` (Docker Desktop)
+  - `~/.orbstack/run/docker.sock` (OrbStack)
+  - `~/.rd/docker.sock` (Rancher Desktop)
+  - `~/.docker/` (CLI config, contexts, buildx)
+  - `~/.colima/` (Colima runtime state)
+  - OrbStack completions directory
+  
+  **Example:**
+  ```bash
+  safehouse --enable=docker -- docker run hello-world
+  safehouse --enable=docker -- docker-compose up
+  ```
+  
+  <Warning>
+  High-risk integration. Docker socket access is equivalent to root access on the host.
+  </Warning>
+</ParamField>
+
+### kubectl
+
+<ParamField path="kubectl" type="integration">
+  Kubernetes CLI configuration, cache, and plugin access.
+  
+  **Enables:**
+  - `~/.kube/` (read: config, certs, cache)
+  - `~/.kube/config` (write: context/credentials updates)
+  - `~/.kube/cache/` (write: discovery cache)
+  - `~/.kube/http-cache/` (write: HTTP cache)
+  - `~/.krew/` (krew plugin manager)
+  
+  **Example:**
+  ```bash
+  safehouse --enable=kubectl -- kubectl get pods
+  safehouse --enable=kubectl -- k9s
+  ```
+</ParamField>
+
+## Remote Access
+
+### ssh
+
+<ParamField path="ssh" type="integration">
+  SSH agent access and safe SSH configuration (blocks private keys).
+  
+  **Enables:**
+  - SSH agent sockets (via `SSH_AUTH_SOCK`)
+  - `~/.ssh/config` and `~/.ssh/config.d/` (read)
+  - `~/.ssh/known_hosts` (read + write)
+  - `~/.ssh/allowed_signers` (git commit signing)
+  - System SSH config (`/etc/ssh/`)
+  
+  **Blocks:**
+  - All `~/.ssh/` private keys (defense-in-depth)
+  
+  **Example:**
+  ```bash
+  safehouse --enable=ssh -- git push origin main
+  safehouse --enable=ssh -- ssh user@host
+  ```
+  
+  <Info>
+  SSH integration allows git operations and remote connections via SSH agent, while preventing private key exfiltration.
+  </Info>
+</ParamField>
+
+## Cloud Providers
+
+### cloud-credentials
+
+<ParamField path="cloud-credentials" type="integration">
+  Cloud provider CLI/SDK credential and configuration access.
+  
+  **Enables:**
+  - `~/.aws/` (AWS profiles, SSO, cache)
+  - `~/.config/gcloud/` (GCP config, tokens)
+  - `~/.azure/` (Azure CLI credentials)
+  - `~/.azd/` (Azure Developer CLI)
+  
+  **Example:**
+  ```bash
+  safehouse --enable=cloud-credentials -- aws s3 ls
+  safehouse --enable=cloud-credentials -- gcloud compute instances list
+  safehouse --enable=cloud-credentials -- az account show
+  ```
+  
+  <Warning>
+  Provides access to cloud credentials. Use `--append-profile` to selectively deny specific providers if needed.
+  </Warning>
+</ParamField>
+
+### 1password
+
+<ParamField path="1password" type="integration">
+  1Password CLI and SSH agent access.
+  
+  **Enables:**
+  - `~/.config/op/` (CLI config, sessions)
+  - `~/.1password/` (SSH agent socket)
+  - `/Users/Shared/.1password/` (shared socket)
+  - 1Password app group containers (agent socket)
+  - `~/.config/1Password/` (SSH agent config)
+  - 1Password Desktop settings (read-only probe)
+  - Mach lookup for 1Password services
+  
+  **Example:**
+  ```bash
+  safehouse --enable=1password -- op item list
+  safehouse --enable=1password,ssh -- git push  # Use 1Password SSH agent
+  ```
+</ParamField>
+
+## macOS Desktop
+
+### macos-gui
+
+<ParamField path="macos-gui" type="integration">
+  Window server, AppKit, accessibility, and framework services for graphical macOS applications.
+  
+  **Enables:**
+  - Window server and Core Animation
+  - AppKit framework services
+  - Fonts and icon services
+  - Input methods and accessibility
+  - TCC (Transparency, Consent, Control)
+  - Launch Services and Core Services
+  - User notifications and audio
+  - Dock, menu bar, and window management
+  - IOKit (power, HID input, storage)
+  
+  **Example:**
+  ```bash
+  safehouse --enable=macos-gui -- /Applications/MyApp.app/Contents/MacOS/MyApp
+  ```
+  
+  <Note>
+  Required for any app that displays windows or UI. Automatically included when `electron` is enabled.
+  </Note>
+</ParamField>
+
+### clipboard
+
+<ParamField path="clipboard" type="integration">
+  Clipboard read/write access for pbcopy/pbpaste.
+  
+  **Enables:**
+  - `com.apple.pasteboard.1` (pasteboard service)
+  - Launch Services type lookups
+  
+  **Example:**
+  ```bash
+  safehouse --enable=clipboard -- pbcopy < file.txt
+  echo "data" | safehouse --enable=clipboard -- pbcopy
+  ```
+</ParamField>
+
+### spotlight
+
+<ParamField path="spotlight" type="integration">
+  Spotlight search via mdfind/mdls/mdutil.
+  
+  **Enables:**
+  - `com.apple.metadata.mds` (Spotlight server)
+  - `com.apple.metadata.mds.legacy` (legacy interface)
+  - Power management control (for Spotlight helpers)
+  
+  **Example:**
+  ```bash
+  safehouse --enable=spotlight -- mdfind 'kMDItemDisplayName == "*.pdf"'
+  ```
+</ParamField>
+
+### cleanshot
+
+<ParamField path="cleanshot" type="integration">
+  Read access to CleanShot screenshot/recording media.
+  
+  **Enables:**
+  - `~/Library/Application Support/CleanShot/media/`
+  
+  **Example:**
+  ```bash
+  safehouse --enable=cleanshot -- ls ~/Library/Application\ Support/CleanShot/media/
+  ```
+</ParamField>
+
+## Browser & Chromium
+
+### chromium-headless
+
+<ParamField path="chromium-headless" type="integration">
+  Headless Chromium/Playwright runtime support.
+  
+  **Enables:**
+  - GPU and Metal shader compilation
+  - Chromium crashpad
+  - Mach port rendezvous
+  - AppKit preferences (accessibility, input, graphics)
+  - Core rendering services
+  - Font and icon services
+  
+  **Example:**
+  ```bash
+  safehouse --enable=chromium-headless -- playwright test
+  safehouse --enable=chromium-headless -- node headless-chrome.js
+  ```
+  
+  <Info>
+  For headless browser automation. Does not include shell init or browser profile directories.
+  </Info>
+</ParamField>
+
+### chromium-full
+
+<ParamField path="chromium-full" type="integration">
+  Additional allowances for headed Chrome for Testing.
+  
+  **Enables:**
+  - All `chromium-headless` features
+  - Chrome for Testing app support directories
+  - Crashpad database
+  - DevTools active port handshake
+  - Chrome preferences
+  - Pasteboard access
+  
+  **Example:**
+  ```bash
+  safehouse --enable=chromium-full -- chrome --headless=new
+  ```
+  
+  <Note>
+  Implies `chromium-headless`. Use for headed browser instances.
+  </Note>
+</ParamField>
+
+### electron
+
+<ParamField path="electron" type="integration">
+  Chromium/Electron runtime: GPU, Metal, crashpad, WebView.
+  
+  **Enables:**
+  - All `macos-gui` features (automatically)
+  - GPU and Metal compiler service
+  - IOKit (IOSurface, AGX device)
+  - Chromium crashpad (Mach register + lookup)
+  - Safari platform support
+  
+  **Example:**
+  ```bash
+  safehouse --enable=electron -- /Applications/MyElectronApp.app/Contents/MacOS/MyElectronApp --no-sandbox
+  ```
+  
+  <Warning>
+  Electron apps must use `--no-sandbox` or `ELECTRON_DISABLE_SANDBOX=1` because safehouse already provides the outer sandbox.
+  </Warning>
+  
+  <Note>
+  Implies `macos-gui`. Electron's internal sandbox is incompatible with safehouse (cannot nest Seatbelt sandboxes).
+  </Note>
+</ParamField>
+
+### agent-browser
+
+<ParamField path="agent-browser" type="integration">
+  Agent-browser CLI state and launcher paths for skill-driven browser automation.
+  
+  **Enables:**
+  - All `chromium-headless` features (automatically)
+  - `~/.agent-browser/` (daemon sockets, screenshots, state)
+  - `~/Library/pnpm/` (traversal for pnpm shims)
+  
+  **Example:**
+  ```bash
+  safehouse --enable=agent-browser -- agent-browser start
+  ```
+  
+  <Note>
+  Implies `chromium-headless`.
+  </Note>
+</ParamField>
+
+### browser-native-messaging
+
+<ParamField path="browser-native-messaging" type="integration">
+  Browser native messaging host registration and extension detection.
+  
+  **Enables:**
+  - Native messaging host registration (read+write)
+  - Extension directory detection (read-only)
+  - Supported browsers: Chrome, Brave, Arc, Edge, Chromium, Vivaldi, Opera, Firefox
+  
+  **No access to:**
+  - Cookies, passwords, history, bookmarks, or profile data
+  
+  **Example:**
+  ```bash
+  safehouse --enable=browser-native-messaging -- install-native-host
+  ```
+  
+  <Info>
+  Extensions directory only contains publicly-available extension source/manifests — no browsing data.
+  </Info>
+</ParamField>
+
+## Development Tools
+
+### shell-init
+
+<ParamField path="shell-init" type="integration">
+  Shell startup file reads for workflows requiring shell-managed PATH/bootstrap.
+  
+  **Enables:**
+  - `/etc/profile`, `/etc/bashrc`, `/etc/zprofile`, `/etc/zshrc`
+  - `/etc/paths` and `/etc/paths.d/`
+  - `~/.zshenv`, `~/.zprofile`, `~/.zshrc`
+  - `~/.zcompdump*` (Zsh completion cache)
+  
+  **Example:**
+  ```bash
+  safehouse --enable=shell-init -- zsh -l -c 'echo $PATH'
+  ```
+  
+  <Warning>
+  Disabled by default to reduce accidental exposure of secrets in shell dotfiles.
+  </Warning>
+</ParamField>
+
+### process-control
+
+<ParamField path="process-control" type="integration">
+  Host process enumeration and signalling for local supervision.
+  
+  **Enables:**
+  - `com.apple.sysmond` (process inventory)
+  - `signal` (kill, pkill, killall)
+  
+  **Does NOT enable:**
+  - Task-port access
+  - Debugger-grade inspection (use `lldb` for that)
+  
+  **Example:**
+  ```bash
+  safehouse --enable=process-control -- pkill node
+  safehouse --enable=process-control -- pgrep -fl python
+  ```
+</ParamField>
+
+### lldb
+
+<ParamField path="lldb" type="integration">
+  LLDB/debugserver toolchain and debugger-grade host process inspection.
+  
+  **Enables:**
+  - All `process-control` features (automatically)
+  - `~/.lldbinit*`
+  - `/Library/Developer/CommandLineTools/`
+  - `/Applications/Xcode.app/Contents/Developer/`
+  - `/Applications/Xcode-beta.app/Contents/Developer/`
+  - Task-port access (`mach-priv-task-port`)
+  - Process info (`process-info-pidinfo`, `process-info-setcontrol`)
+  
+  **Example:**
+  ```bash
+  safehouse --enable=lldb -- lldb ./myapp
+  safehouse --enable=lldb -- lldb -p 1234
+  ```
+  
+  <Warning>
+  High-risk integration. Provides task-port access and debugger capabilities. Successful attach still depends on macOS debugger policy (taskgated, SIP, hardened targets).
+  </Warning>
+  
+  <Note>
+  Implies `process-control`.
+  </Note>
+</ParamField>
+
+## Meta Integrations
+
+### all-agents
+
+<ParamField path="all-agents" type="integration">
+  Load every profile from `60-agents/`.
+  
+  Includes profiles for: Claude, Cursor, Aider, Gemini, OpenHands, and other coding agents.
+  
+  **Example:**
+  ```bash
+  safehouse --enable=all-agents -- unknown-agent
+  ```
+  
+  <Info>
+  Use when the specific agent is unknown or when running multiple agents.
+  </Info>
+</ParamField>
+
+### all-apps
+
+<ParamField path="all-apps" type="integration">
+  Load every profile from `65-apps/`.
+  
+  Includes profiles for common desktop applications and tools.
+  
+  **Example:**
+  ```bash
+  safehouse --enable=all-apps -- /Applications/Unknown.app/Contents/MacOS/Unknown
+  ```
+</ParamField>
+
+### wide-read
+
+<ParamField path="wide-read" type="integration">
+  Grant read-only visibility across `/` (entire filesystem).
+  
+  **Example:**
+  ```bash
+  safehouse --enable=wide-read -- find /usr -name '*.dylib'
+  ```
+  
+  <Warning>
+  Broad permission grant. Use cautiously. Prefer specific `--add-dirs-ro` paths when possible.
+  </Warning>
+</ParamField>
+
+## Integration Dependencies
+
+Some integrations automatically enable others:
+
+<CardGroup cols={2}>
+  <Card title="electron" icon="arrow-right">
+    Implies `macos-gui`
+  </Card>
+  
+  <Card title="chromium-full" icon="arrow-right">
+    Implies `chromium-headless`
+  </Card>
+  
+  <Card title="agent-browser" icon="arrow-right">
+    Implies `chromium-headless`
+  </Card>
+  
+  <Card title="lldb" icon="arrow-right">
+    Implies `process-control`
+  </Card>
+</CardGroup>
+
+## Combining Integrations
+
+Integrations can be freely combined:
+
+<CodeGroup>
+```bash Development
+# Full development environment
+safehouse --enable=docker,kubectl,ssh,cloud-credentials -- aider
+```
+
+```bash Desktop App
+# Electron app with clipboard
+safehouse --enable=electron,clipboard -- /Applications/App.app/Contents/MacOS/App
+```
+
+```bash Browser Automation
+# Headless browser with native messaging
+safehouse --enable=chromium-headless,browser-native-messaging -- playwright test
+```
+
+```bash Debugging
+# Debug with process control
+safehouse --enable=lldb,shell-init -- lldb ./app
+```
+</CodeGroup>
+
+## Security Considerations
+
+<Warning>
+**High-risk integrations:**
+- `docker` — Socket access equivalent to root
+- `lldb` — Task-port access and debugger capabilities
+- `cloud-credentials` — Access to cloud provider credentials
+- `wide-read` — Read access to entire filesystem
+
+Only enable when necessary.
+</Warning>
+
+<Info>
+**Safe integrations:**
+- `clipboard` — Limited to pasteboard
+- `spotlight` — Read-only search
+- `cleanshot` — Read-only media access
+- `process-control` — Signalling only (no task-port)
+</Info>
+
+## Viewing Active Integrations
+
+Use `--explain` to see which integrations are active:
+
+```bash
+safehouse --explain --enable=docker,kubectl --stdout
+```
+
+Output shows:
+- Explicitly included integrations (from `--enable`)
+- Implicitly included integrations (dependencies)
+- Available but not included integrations

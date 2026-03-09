@@ -1,0 +1,523 @@
+---
+title: Custom Profiles
+description: How to write .sb files, matchers (literal/subpath/regex), and real examples
+---
+
+## Writing `.sb` Files
+
+Sandbox profiles use **Sandbox Profile Language (SBPL)**, a Scheme-like DSL for macOS Seatbelt. Safehouse profiles are modular `.sb` files that follow a consistent structure.
+
+### Basic Structure
+
+Every Safehouse profile includes:
+1. **Header comment** (category, description, source path)
+2. **Dependency metadata** (optional `$$require=` declarations)
+3. **Sandbox rules** (allow/deny operations with matchers)
+
+<CodeGroup>
+```scheme Template
+;; ---------------------------------------------------------------------------
+;; Category: Feature Name
+;; Description of what this profile grants access to.
+;; Source: path/to/profile.sb
+;; ---------------------------------------------------------------------------
+
+(allow <operation>
+    (<matcher> "<path>")
+)
+```
+
+```scheme Real Example (docker.sb)
+;; ---------------------------------------------------------------------------
+;; Integration: Docker
+;; Docker daemon socket access for container operations. High-risk.
+;; Source: 55-integrations-optional/docker.sb
+;; ---------------------------------------------------------------------------
+
+(allow file-read* file-write*
+    (literal "/var/run/docker.sock")
+    (literal "/private/var/run/docker.sock")
+    (home-literal "/.docker/run/docker.sock")
+    (home-literal "/.orbstack/run/docker.sock")
+    (home-subpath "/.docker")
+    (home-subpath "/.colima")
+    (home-literal "/.rd/docker.sock")
+)
+
+(allow file-read*
+    (subpath "/Applications/OrbStack.app/Contents/Resources/completions")
+)
+```
+</CodeGroup>
+
+---
+
+## Operations
+
+### File Operations
+
+| Operation | Description | Example |
+|-----------|-------------|---------|
+| `file-read*` | Read file contents, metadata, and list directories | `(allow file-read* (literal "/tmp/foo"))` |
+| `file-read-metadata` | Read file metadata (stat) only, no contents | `(allow file-read-metadata (literal "/etc/hosts"))` |
+| `file-write*` | Write, create, delete files | `(allow file-write* (subpath "/tmp"))` |
+| `file-read* file-write*` | Combined read/write access | `(allow file-read* file-write* (home-subpath "/.myapp"))` |
+
+<Warning>
+  `file-read*` includes listing directory contents (`readdir()`). Use `file-read-metadata` if you only need stat access.
+</Warning>
+
+### Network Operations
+
+| Operation | Description | Example |
+|-----------|-------------|---------|
+| `network-outbound` | Establish outbound TCP/UDP connections | `(allow network-outbound (remote ip))` |
+| `network-inbound` | Accept inbound connections (rare) | `(allow network-inbound (local tcp "*:8080"))` |
+
+### IPC Operations
+
+| Operation | Description | Example |
+|-----------|-------------|---------|
+| `mach-lookup` | Connect to mach services | `(allow mach-lookup (global-name "com.apple.SecurityServer"))` |
+| `mach-register` | Register mach services (rare) | `(allow mach-register (global-name-regex #"^com\\.myapp\\."))` |
+| `ipc-posix-shm-*` | POSIX shared memory access | `(allow ipc-posix-shm-read-data (ipc-posix-name "com.apple.AppleDatabaseChanged"))` |
+
+### IOKit Operations
+
+| Operation | Description | Example |
+|-----------|-------------|---------|
+| `iokit-open` | Open IOKit user clients (GPU, hardware access) | `(allow iokit-open (iokit-user-client-class "IOSurfaceRootUserClient"))` |
+
+---
+
+## Matchers
+
+### File Path Matchers
+
+<Accordion title="literal (exact path match)">
+  Matches a **single file or directory** exactly. Safest and most precise.
+
+  ```scheme
+  (allow file-read*
+      (literal "/Users/alice/.gitconfig")
+      (literal "/etc/hosts")
+  )
+  ```
+
+  <Info>
+    When used on a **directory**, `literal` grants access to **list the directory's immediate children** (via `readdir()`), but **not** recursive access to subdirectories or their files.
+  </Info>
+
+  **Use case:** Grant access to a specific config file or single directory.
+</Accordion>
+
+<Accordion title="subpath (recursive directory match)">
+  Matches a directory and **all files/subdirectories recursively** under it.
+
+  ```scheme
+  (allow file-read* file-write*
+      (subpath "/Users/alice/projects/myapp")
+      (home-subpath "/.docker")
+  )
+  ```
+
+  <Warning>
+    **Broader grant.** Only use `subpath` when you need full recursive access. Prefer `literal` for single files or narrower grants.
+  </Warning>
+
+  **Use case:** Grant full access to a project directory or toolchain installation.
+</Accordion>
+
+<Accordion title="prefix (starts-with match)">
+  Matches paths that **start with** the given string.
+
+  ```scheme
+  (allow file-read*
+      (prefix "/usr/local/bin/node")
+  )
+  ```
+
+  This matches `/usr/local/bin/node`, `/usr/local/bin/node-v18`, `/usr/local/bin/nodejs`, etc.
+
+  <Info>
+    Less common in Safehouse profiles. Use `literal` or `subpath` when possible for clarity.
+  </Info>
+
+  **Use case:** Match versioned binaries or symlinks with a common prefix.
+</Accordion>
+
+<Accordion title="regex (regular expression match)">
+  Matches paths using a POSIX Extended Regular Expression.
+
+  ```scheme
+  (allow file-read*
+      (regex #"^/Users/[^/]+/\\.nvm/versions/node/v[0-9]+\\.[0-9]+\\.[0-9]+/")
+  )
+  ```
+
+  <Warning>
+    **High complexity.** Use sparingly. Regex patterns are harder to audit and can unintentionally match sensitive paths.
+  </Warning>
+
+  **Use case:** Match dynamic paths with variable components (e.g., usernames, version numbers).
+</Accordion>
+
+### Helper Macros (Safehouse-Specific)
+
+Safehouse provides helper macros defined in `00-base.sb`:
+
+```scheme
+(define HOME_DIR "__SAFEHOUSE_REPLACE_ME_WITH_ABSOLUTE_HOME_DIR__")
+(define (home-subpath rel) (subpath (string-append HOME_DIR rel)))
+(define (home-literal rel) (literal (string-append HOME_DIR rel)))
+(define (home-prefix rel) (prefix (string-append HOME_DIR rel)))
+```
+
+**Usage:**
+
+```scheme
+(allow file-read* file-write*
+    (home-subpath "/.myapp")               ;; /Users/alice/.myapp (recursive)
+    (home-literal "/.myapp.conf")          ;; /Users/alice/.myapp.conf (exact)
+    (home-prefix "/.config/myapp")         ;; /Users/alice/.config/myapp* (prefix)
+)
+```
+
+<Info>
+  Always use `home-*` macros instead of hardcoding `/Users/alice`. The `HOME_DIR` placeholder is replaced at runtime with the actual home directory path.
+</Info>
+
+### Mach Service Matchers
+
+<Accordion title="global-name (exact service name)">
+  Matches a specific mach service name.
+
+  ```scheme
+  (allow mach-lookup
+      (global-name "com.apple.SecurityServer")
+      (global-name "com.apple.cfprefsd.daemon")
+  )
+  ```
+
+  **Use case:** Grant access to specific macOS system services.
+</Accordion>
+
+<Accordion title="global-name-regex (regex service name)">
+  Matches mach service names using a regex pattern.
+
+  ```scheme
+  (allow mach-lookup
+      (global-name-regex #"^org\\.chromium\\.crashpad\\.child_port_handshake\\.")
+  )
+  ```
+
+  **Use case:** Match dynamic service names (e.g., Chromium crashpad child processes).
+</Accordion>
+
+---
+
+## Real Examples
+
+### Example 1: Aider Agent Profile
+
+From `profiles/60-agents/aider.sb`:
+
+```scheme
+;; ---------------------------------------------------------------------------
+;; Agent: Aider
+;; Aider CLI binary, state, and config paths.
+;; Source: 60-agents/aider.sb
+;; ---------------------------------------------------------------------------
+
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/aider")
+    (home-prefix "/.local/bin/aider-install")
+    (home-prefix "/.aider")
+    (home-literal "/.aider.conf.yml")
+    (home-literal "/.aider.model.settings.yml")
+    (home-literal "/.aider.model.metadata.json")
+    (home-subpath "/.config/aider")
+    (home-subpath "/.cache/aider")
+    (home-subpath "/.local/share/aider")
+)
+```
+
+<Info>
+  **Breakdown:**
+  - `home-prefix "/.local/bin/aider"` matches `/Users/alice/.local/bin/aider`, `/Users/alice/.local/bin/aider-install`, etc.
+  - `home-literal` grants access to specific config files.
+  - `home-subpath` grants recursive access to cache and data directories.
+</Info>
+
+---
+
+### Example 2: Keychain Integration
+
+From `profiles/55-integrations-optional/keychain.sb`:
+
+```scheme
+;; ---------------------------------------------------------------------------
+;; Integration: Keychain
+;; macOS Keychain and Security framework for agent authentication/credential storage.
+;; Source: 55-integrations-optional/keychain.sb
+;; ---------------------------------------------------------------------------
+
+(allow file-read* file-write*
+    (home-subpath "/Library/Keychains")
+    (home-literal "/Library/Preferences/com.apple.security.plist")
+)
+
+(allow file-read*
+    (literal "/Library/Preferences/com.apple.security.plist")
+    (literal "/Library/Keychains/System.keychain")
+    (subpath "/private/var/db/mds")
+)
+
+(allow file-read-metadata
+    (home-literal "/Library")
+    (home-literal "/Library/Keychains")
+    (literal "/Library")
+    (literal "/Library/Keychains")
+)
+
+(allow mach-lookup
+    (global-name "com.apple.SecurityServer")
+    (global-name "com.apple.security.agent")
+    (global-name "com.apple.securityd.xpc")
+    (global-name "com.apple.security.authhost")
+    (global-name "com.apple.secd")
+    (global-name "com.apple.trustd")
+)
+
+(allow ipc-posix-shm-read-data ipc-posix-shm-write-create ipc-posix-shm-write-data
+    (ipc-posix-name "com.apple.AppleDatabaseChanged")
+)
+```
+
+<Info>
+  **Breakdown:**
+  - `file-read-metadata` grants stat-only access to parent directories (no content listing).
+  - `mach-lookup` grants access to security-related mach services.
+  - `ipc-posix-shm-*` grants shared memory access for keychain change notifications.
+</Info>
+
+---
+
+### Example 3: Electron Integration (with Dependency)
+
+From `profiles/55-integrations-optional/electron.sb`:
+
+```scheme
+;; ---------------------------------------------------------------------------
+;; Integration: Electron
+;; Chromium/Electron runtime: GPU, Metal shaders, crashpad, and WebView.
+;; Source: 55-integrations-optional/electron.sb
+;; $$require=55-integrations-optional/macos-gui.sb$$
+;; #safehouse-test-id:electron-integration#
+;; ---------------------------------------------------------------------------
+
+;; -- GPU / Metal shader compilation --------------------------------------------
+;; #safehouse-test-id:electron-gpu-metal#
+
+(allow mach-lookup
+    (global-name "com.apple.MTLCompilerService")
+    (global-name "com.apple.SafariPlatformSupport.Helper")
+)
+
+(allow iokit-open
+    (iokit-user-client-class "IOSurfaceRootUserClient")
+    (iokit-user-client-class "AGXDeviceUserClient")
+)
+
+(allow file-read-metadata
+    (literal "/private/var/db/.AppleSetupDone")
+)
+
+;; -- Chromium crashpad crash reporting -----------------------------------------
+;; #safehouse-test-id:electron-crashpad#
+;; #safehouse-test-id:electron-crashpad-lookup#
+
+(allow mach-lookup
+    (global-name-regex #"^org\\.chromium\\.crashpad\\.child_port_handshake\\.")
+)
+
+;; #safehouse-test-id:electron-crashpad-register#
+(allow mach-register
+    (global-name-regex #"^org\\.chromium\\.crashpad\\.child_port_handshake\\.")
+)
+```
+
+<Info>
+  **Key features:**
+  - `$$require=55-integrations-optional/macos-gui.sb$$` auto-injects `macos-gui.sb` when `electron.sb` is enabled.
+  - `#safehouse-test-id:*#` markers are used by test assertions to verify rule structure/order.
+  - `global-name-regex` matches dynamic crashpad service names.
+</Info>
+
+---
+
+## Authoring Checklist
+
+When creating a new profile:
+
+<Steps>
+  <Step title="Choose the right stage prefix">
+    | Stage | Purpose |
+    |-------|----------|
+    | `30-toolchains/` | Language runtimes, package managers |
+    | `40-shared/` | Cross-agent resources |
+    | `50-integrations-core/` | Always-on integrations (git, gh) |
+    | `55-integrations-optional/` | Opt-in integrations (docker, ssh, keychain) |
+    | `60-agents/` | Agent-specific grants |
+    | `65-apps/` | App bundle-specific grants |
+  </Step>
+
+  <Step title="Add standard header">
+    ```scheme
+    ;; ---------------------------------------------------------------------------
+    ;; Category: Feature Name
+    ;; Description of what this profile grants access to.
+    ;; Source: path/to/profile.sb
+    ;; ---------------------------------------------------------------------------
+    ```
+  </Step>
+
+  <Step title="Declare dependencies (if needed)">
+    ```scheme
+    ;; $$require=55-integrations-optional/macos-gui.sb$$
+    ```
+
+    Use `$$require=` for implicit optional integration injection. For documentation-only dependencies, use comments:
+
+    ```scheme
+    ;; Requires: macos-gui integration (documentation only)
+    ```
+  </Step>
+
+  <Step title="Write sandbox rules">
+    Prefer `literal` > `subpath` > `prefix` > `regex` (narrowest first).
+
+    Use `home-*` macros instead of hardcoded `/Users/alice`.
+  </Step>
+
+  <Step title="Add test markers (optional)">
+    ```scheme
+    ;; #safehouse-test-id:my-feature#
+    (allow file-read*
+        (home-subpath "/.myapp")
+    )
+    ```
+
+    Used by `assert_policy_order_literal` and `assert_policy_contains` in tests.
+  </Step>
+
+  <Step title="Add tests">
+    Create a test section in `tests/sections/`:
+
+    ```bash
+    # tests/sections/my-feature.sh
+    section_begin "my feature"
+
+    assert_allowed "read from granted path" \
+      cat ~/.myapp/config.json
+
+    assert_denied "write to system path" \
+      touch /System/test
+
+    register_section
+    ```
+  </Step>
+
+  <Step title="Regenerate dist artifacts">
+    ```bash
+    ./scripts/generate-dist.sh
+    ```
+
+    Commit both the new profile **and** regenerated `dist/` files in the same PR.
+  </Step>
+</Steps>
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Narrow Grants" icon="crosshairs">
+    Use `literal` for single files/directories. Only use `subpath` when you need full recursive access.
+  </Card>
+
+  <Card title="Use Home Macros" icon="house">
+    Always use `home-subpath`, `home-literal`, `home-prefix` instead of hardcoded `/Users/alice`.
+  </Card>
+
+  <Card title="Document Why" icon="comment">
+    Explain **why** a grant is needed, not just what it does. Future maintainers will thank you.
+  </Card>
+
+  <Card title="Test Behavior" icon="vial">
+    Add `assert_allowed` and `assert_denied` tests for every new profile. Verify both positive and negative cases.
+  </Card>
+</CardGroup>
+
+---
+
+## Debugging Sandbox Denials
+
+### Watch Live Denials
+
+```bash
+/usr/bin/log stream --style compact --predicate 'eventMessage CONTAINS "Sandbox:" AND eventMessage CONTAINS "deny("'
+```
+
+<CodeGroup>
+```bash Example Output
+2026-03-09 10:23:45.123 kernel: Sandbox: myagent(1234) deny(1) file-read-data /Users/alice/.ssh/id_rsa
+```
+</CodeGroup>
+
+### Recent Denial History
+
+```bash
+/usr/bin/log show --last 2m --style compact --predicate 'process == "sandboxd"'
+```
+
+### Kernel-Level Stream
+
+```bash
+/usr/bin/log stream --style compact --info --debug --predicate '(processID == 0) AND (senderImagePath CONTAINS "/Sandbox")'
+```
+
+<Info>
+  Run these commands **before** invoking `safehouse` to capture denials as they happen.
+</Info>
+
+---
+
+## Reference Material
+
+### Official Sources
+
+- **macOS built-in profiles:** `/System/Library/Sandbox/Profiles/` and `/usr/share/sandbox/`
+- **Safehouse profiles:** `profiles/` (primary style reference)
+- **Assembled examples:** `dist/profiles/safehouse.generated.sb` and `dist/profiles/safehouse-for-apps.generated.sb`
+
+### Matcher Preference Order
+
+1. **`literal`** — Exact path match (safest, most precise)
+2. **`subpath`** — Recursive directory match (broader, use when needed)
+3. **`prefix`** — Starts-with match (less common, use for versioned paths)
+4. **`regex`** — Regular expression match (highest complexity, use sparingly)
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Policy Architecture" href="/advanced/policy-architecture" icon="layer-group">
+    Understand assembly order, profile layers, and dependency system.
+  </Card>
+
+  <Card title="Customization" href="/advanced/customization" icon="wrench">
+    Learn about machine-local overrides and `--append-profile` for runtime customization.
+  </Card>
+</CardGroup>

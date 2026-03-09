@@ -1,0 +1,190 @@
+---
+title: Introduction
+description: Sandbox your LLM coding agents on macOS with practical least privilege
+---
+
+Agent Safehouse is a macOS sandbox wrapper for LLM coding agents that uses `sandbox-exec` with composable policy profiles and a deny-first model.
+
+## What It Does
+
+Agent Safehouse wraps coding agents like Claude, Cursor, Aider, Gemini, and others in a macOS sandbox that:
+
+- **Starts from deny-all** and explicitly allows only what the agent needs
+- **Protects sensitive files** like SSH keys, cloud credentials, and unrelated repositories
+- **Keeps workflows productive** by allowing necessary system paths, toolchains, and integrations
+- **Works with major agents** through automatic profile detection and app-hosted workflows
+
+<Note>
+Agent Safehouse is a hardening layer, not a perfect security boundary against a determined attacker.
+</Note>
+
+## Why It Exists
+
+LLM coding agents run shell commands with your user privileges. A prompt injection, confused deputy flow, or a bad command can otherwise touch:
+
+- SSH private keys (`~/.ssh`)
+- Cloud credentials (AWS, GCP, Azure configs)
+- Unrelated repositories and projects
+- Personal files and sensitive data
+
+Agent Safehouse reduces that blast radius without requiring major workflow changes.
+
+## Key Benefits
+
+<CardGroup cols={2}>
+  <Card title="Practical Security" icon="shield-check">
+    Deny-first model with explicit allows. Start from zero access and grant only what's needed.
+  </Card>
+  <Card title="Zero Friction" icon="bolt">
+    Works with existing agent CLIs. No code changes, no VM overhead, native macOS performance.
+  </Card>
+  <Card title="Composable Policies" icon="layer-group">
+    Modular `.sb` profiles for toolchains, integrations, and agents. Mix and match as needed.
+  </Card>
+  <Card title="Developer-First" icon="code">
+    Prioritizes productivity. Common workflows work out of the box with sensible defaults.
+  </Card>
+</CardGroup>
+
+## Philosophy
+
+Agent Safehouse is designed around **practical least privilege**:
+
+1. Start from deny-all
+2. Allow only what the agent needs to do useful work
+3. Keep developer workflows productive
+4. Make risk reduction easy by default
+
+Each policy rule answers one question: **Does the agent need this to do its job?**
+
+## What's Allowed By Default
+
+<Info>
+These paths are granted automatically to keep common coding workflows functional.
+</Info>
+
+- Filesystem reads for core macOS/system/toolchain paths (shells, compilers, package managers)
+- Process execution and forking for normal dev subprocess trees
+- Network access for registries, APIs, remotes, and MCP servers
+- Core SCM integrations (`git`, `gh`, `glab`) for repository workflows
+- Temporary directories and runtime IPC services for CLI workflows
+- Agent-specific config paths (scoped to the detected agent)
+- Your working directory (detected from git root or current directory)
+
+## What's Denied By Default
+
+<Warning>
+These paths require explicit opt-in via `--enable` flags or custom policies.
+</Warning>
+
+- SSH private keys under `~/.ssh`
+- Shell startup files (`.zshrc`, `.bashrc`) unless `--enable=shell-init`
+- Browser profile data unless `--enable=browser-native-messaging`
+- Clipboard access unless `--enable=clipboard`
+- Host process enumeration unless `--enable=process-control`
+- LLDB/debugger access unless `--enable=lldb`
+- Docker socket unless `--enable=docker`
+- Kubernetes config unless `--enable=kubectl`
+
+## Important Limitations
+
+<Warning>
+Agent Safehouse does **not** fully protect against:
+</Warning>
+
+- **Data exfiltration over network** from files the sandbox is allowed to read
+- **Sandbox escapes** (it is not a VM/hypervisor boundary)
+- **Abuse through allowed IPC channels** or credential access
+- **Leakage from explicitly allowed paths** that you grant
+
+It is a practical hardening layer for reducing blast radius, not a guarantee of complete isolation.
+
+## Supported Agents
+
+Agent Safehouse includes profiles for popular coding agents:
+
+- **Claude Code** (`claude`) - Anthropic's CLI agent
+- **Aider** (`aider`) - AI pair programming
+- **Cursor Agent** (`cursor-agent`) - Cursor IDE agent
+- **Cline** - VS Code extension agent
+- **Codex** (`codex`) - Agent framework
+- **Amp** (`amp`) - Coding assistant
+- **OpenCode** (`opencode`) - Open source agent
+- **Gemini CLI** (`gemini`) - Google's agent
+- **Goose** (`goose`) - Agent framework
+- **Kilo Code** (`kilo`) - Coding agent
+- **Pi** (`pi`) - Personal agent
+- **Droid** (`droid`) - Mobile agent support
+- **Auggie** (`auggie`) - Augmented coding
+
+Profiles are automatically selected based on the command you run.
+
+## How It Works
+
+```bash
+# Normal (unsandboxed) - agent can access everything
+laude --dangerously-skip-permissions
+
+# Sandboxed - agent can only access allowed paths
+safehouse claude --dangerously-skip-permissions
+```
+
+Agent Safehouse:
+
+1. Detects your working directory (git root or current dir)
+2. Assembles a sandbox policy from modular `.sb` profiles
+3. Grants your workdir + system/toolchain paths
+4. Wraps your command with `sandbox-exec`
+5. Enforces denials at the kernel level
+
+<Steps>
+  <Step title="Policy Assembly">
+    Combines base policies, toolchain paths, integrations, and agent-specific rules
+  </Step>
+  <Step title="Path Grants">
+    Grants your working directory and any additional paths via `--add-dirs` or `--add-dirs-ro`
+  </Step>
+  <Step title="Sandbox Execution">
+    Wraps your command with macOS `sandbox-exec` using the assembled policy
+  </Step>
+  <Step title="Kernel Enforcement">
+    macOS kernel enforces denials - blocked operations return "Operation not permitted"
+  </Step>
+</Steps>
+
+## Quick Example
+
+```bash
+# Try to read SSH key - denied
+safehouse cat ~/.ssh/id_ed25519
+# cat: /Users/you/.ssh/id_ed25519: Operation not permitted
+
+# Try to list another repo - invisible
+safehouse ls ~/other-project
+# ls: /Users/you/other-project: Operation not permitted
+
+# But your current project works fine
+cd ~/projects/my-app
+safehouse ls .
+# README.md  src/  package.json  ...
+
+# Run agent in sandbox
+safehouse claude --dangerously-skip-permissions
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install the safehouse CLI and set up shell functions
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get your first sandboxed agent running in 5 minutes
+  </Card>
+  <Card title="Usage Guide" icon="book" href="/usage">
+    Learn common patterns and advanced configuration
+  </Card>
+  <Card title="Policy Architecture" icon="sitemap" href="/policy-architecture">
+    Understand how policies are assembled and customized
+  </Card>
+</CardGroup>

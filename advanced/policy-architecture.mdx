@@ -1,0 +1,304 @@
+---
+title: Policy Architecture
+description: Understanding Safehouse's policy assembly, layer ordering, and dependency system
+---
+
+## Assembly Order
+
+Agent Safehouse assembles sandbox policies from modular `.sb` files in a fixed, deterministic order. **Later rules win** — understanding this order is critical when debugging unexpected behavior.
+
+<Steps>
+  <Step title="Base Layer (00-base.sb)">
+    Defines `HOME_DIR` placeholder, helper macros (`home-subpath`, `home-literal`, `home-prefix`), and the foundational `(deny default)` rule.
+
+    ```scheme
+    (version 1)
+    (define HOME_DIR "__SAFEHOUSE_REPLACE_ME_WITH_ABSOLUTE_HOME_DIR__")
+    (define (home-subpath rel) (subpath (string-append HOME_DIR rel)))
+    (deny default)
+    ```
+
+    The `HOME_DIR` placeholder is replaced at assembly time with the actual resolved home directory path.
+  </Step>
+
+  <Step title="System Runtime (10-system-runtime.sb)">
+    Grants access to core macOS system libraries, frameworks, fonts, locales, and dyld caches required for process startup.
+  </Step>
+
+  <Step title="Network (20-network.sb)">
+    Enables TCP/UDP network operations, DNS resolution, and related mach services (`com.apple.networkd`, `com.apple.SystemConfiguration`).
+  </Step>
+
+  <Step title="Toolchains (30-toolchains/*.sb)">
+    Language runtimes and package managers: Node.js, Python, Ruby, Go, Rust, Java, Deno, Bun, PHP, Perl, and version managers (nvm, pyenv, rbenv, asdf).
+
+    All `.sb` files in `profiles/30-toolchains/` are concatenated in **lexicographic order**.
+  </Step>
+
+  <Step title="Shared Resources (40-shared/*.sb)">
+    Cross-agent resources like `agent-common.sb` (temp directories, shell config, terminal access).
+  </Step>
+
+  <Step title="Core Integrations (50-integrations-core/*.sb)">
+    Always-on integrations: `git.sb`, `scm-clis.sb` (gh, gh-copilot, gh-dash, gh-i, gh-markdown-preview, gh-poe), `launch-services.sb`, and `container-runtime-default-deny.sb`.
+  </Step>
+
+  <Step title="Optional Integrations (55-integrations-optional/*.sb)">
+    Opt-in integrations enabled via `--enable=<feature>` or injected automatically when required by agent/app profiles:
+    - `docker`, `kubectl`, `ssh`, `clipboard`, `spotlight`
+    - `macos-gui`, `electron`, `chromium-headless`, `chromium-full`
+    - `keychain` (auto-injected via `$$require=` metadata)
+    - `cloud-credentials`, `1password`, `cleanshot`, `agent-browser`, `browser-native-messaging`, `shell-init`, `process-control`, `lldb`
+  </Step>
+
+  <Step title="Agent Profiles (60-agents/*.sb)">
+    Agent-specific grants selected by command basename match or explicit `--enable=all-agents`:
+    - `aider.sb`, `claude-code.sb`, `cursor-agent.sb`, `goose.sb`, `opencode.sb`, `pi.sb`, and others.
+
+    Only profiles matching the invoked command are included (unless `--enable=all-agents`).
+  </Step>
+
+  <Step title="App Profiles (65-apps/*.sb)">
+    App bundle-specific grants for GUI apps like `claude-app.sb` and `vscode-app.sb`.
+
+    Selected by app bundle detection or `--enable=all-apps`.
+  </Step>
+
+  <Step title="Dynamic CLI Path Grants">
+    Paths from `--add-dirs-ro` (read-only) are emitted first, followed by `--add-dirs` (read/write).
+
+    Each path grant includes ancestor directory literals for traversal (see [Policy Architecture](#ancestor-literals)).
+  </Step>
+
+  <Step title="Workdir Grant">
+    The selected working directory (default: `$PWD`) receives a recursive read/write `subpath` grant.
+
+    Omitted if `--workdir=` explicitly empty or `SAFEHOUSE_WORKDIR=` unset.
+  </Step>
+
+  <Step title="Appended Profiles (--append-profile)">
+    Final extension point. Profiles passed via `--append-profile` are concatenated last.
+
+    **Deny rules here take precedence** over earlier allow rules (last rule wins).
+  </Step>
+</Steps>
+
+<Warning>
+  **Order matters.** If an allow rule isn't working, check if a later profile (especially `--append-profile` or workdir grants) is overriding it.
+</Warning>
+
+---
+
+## Profile Layers
+
+### Stage Prefix System
+
+Profiles are organized by numeric stage prefix:
+
+| Stage | Directory | Purpose | Selection |
+|-------|-----------|---------|----------|
+| `00` | `profiles/` | Base definitions, HOME_DIR, `(deny default)` | Always |
+| `10` | `profiles/` | System runtime (dyld, frameworks) | Always |
+| `20` | `profiles/` | Network access | Always |
+| `30` | `profiles/30-toolchains/` | Language runtimes, package managers | Always (all files) |
+| `40` | `profiles/40-shared/` | Shared agent resources (temp, shell) | Always (all files) |
+| `50` | `profiles/50-integrations-core/` | Git, SCM CLIs, launch services | Always (all files) |
+| `55` | `profiles/55-integrations-optional/` | Docker, SSH, keychain, GUI, etc. | Opt-in (`--enable`) or auto-injected |
+| `60` | `profiles/60-agents/` | Agent-specific grants | Command-matched or `--enable=all-agents` |
+| `65` | `profiles/65-apps/` | App bundle-specific grants | Bundle-matched or `--enable=all-apps` |
+
+### Lexicographic Concatenation
+
+Within each stage directory, files are concatenated using `find ... | LC_ALL=C sort`:
+
+```bash
+find profiles/30-toolchains -maxdepth 1 -type f -name '*.sb' | LC_ALL=C sort
+```
+
+This ensures deterministic assembly across machines and CI environments.
+
+---
+
+## Dependency System
+
+### `$$require=` Metadata
+
+Profiles can declare dependencies using inline metadata:
+
+```scheme
+;; Source: 55-integrations-optional/electron.sb
+;; $$require=55-integrations-optional/macos-gui.sb$$
+```
+
+When `electron.sb` is selected (via `--enable=electron` or agent profile requirement), `macos-gui.sb` is **automatically injected** even if not explicitly enabled.
+
+<Info>
+  `$$require=` is machine-read metadata. Human-facing comments like `;; Requires: macos-gui` are documentation-only.
+</Info>
+
+### Keychain Auto-Injection
+
+The `keychain.sb` integration is special: it's **never** explicitly enabled via `--enable=keychain`. Instead, it's auto-injected when any selected agent/app profile declares:
+
+```scheme
+;; $$require=55-integrations-optional/keychain.sb$$
+```
+
+Example from a hypothetical agent profile:
+
+```scheme
+;; Source: 60-agents/example-agent.sb
+;; $$require=55-integrations-optional/keychain.sb$$
+
+(allow file-read* file-write*
+    (home-subpath "/.example-agent")
+)
+```
+
+When this agent is invoked, `keychain.sb` is automatically included in the policy assembly.
+
+### Dependency Resolution Logic
+
+From `bin/lib/policy/30-assembly.sh`:
+
+```bash
+should_include_optional_integration_profile() {
+  local profile_basename="$1"
+  local integration_token="55-integrations-optional/${profile_basename}"
+
+  case "$profile_basename" in
+  keychain.sb)
+    selected_profiles_require_integration "$integration_token" ||
+      optional_enabled_integrations_require_integration "$integration_token"
+    return
+    ;;
+  esac
+
+  feature="$(optional_integration_feature_from_profile_basename "$profile_basename")" || {
+    echo "Unknown optional integration profile: ${profile_basename}" >&2
+    exit 1
+  }
+
+  optional_integration_feature_enabled "$feature" ||
+    selected_profiles_require_integration "$integration_token" ||
+    optional_enabled_integrations_require_integration "$integration_token"
+}
+```
+
+**Resolution order:**
+1. Explicit `--enable=<feature>` ✅
+2. Agent/app profile declares `$$require=55-integrations-optional/<feature>.sb$$` ✅
+3. Already-enabled integration declares `$$require=55-integrations-optional/<feature>.sb$$` ✅
+
+---
+
+## Ancestor Literals
+
+When granting access to a directory path, Safehouse emits **ancestor directory literals** for traversal:
+
+```scheme
+;; Generated ancestor directory literals for selected workdir: /Users/alice/projects/myapp
+(allow file-read*
+    (literal "/")
+    (literal "/Users")
+    (literal "/Users/alice")
+    (literal "/Users/alice/projects")
+    (literal "/Users/alice/projects/myapp")
+)
+
+(allow file-read* file-write* (subpath "/Users/alice/projects/myapp"))
+```
+
+<Accordion title="Why file-read* with literal (not file-read-metadata with subpath)?">
+  Agents like Claude Code call `readdir()` on every ancestor directory during startup. If only `file-read-metadata` (stat) is granted, the agent cannot list directory contents, which causes it to blank `PATH` and break.
+
+  Using `literal` (not `subpath`) keeps this safe: it grants read access to the directory entry itself (listing its immediate children), but does **NOT** grant recursive read access to files or subdirectories under it.
+</Accordion>
+
+This pattern is generated by `emit_path_ancestor_literals()` in `bin/lib/policy/30-assembly.sh` (lines 289-323).
+
+---
+
+## Explain Mode
+
+Use `--explain` to inspect the effective policy configuration:
+
+```bash
+safehouse --explain --enable=docker,ssh --stdout
+```
+
+<CodeGroup>
+```bash Output
+safehouse explain:
+  effective workdir: /Users/alice/projects/myapp (source: PWD)
+  workdir config trust: disabled (source: default)
+  workdir config: not found at /Users/alice/projects/myapp/.safehouse
+  add-dirs-ro (normalized):
+  add-dirs (normalized):
+  optional integrations explicitly enabled: docker ssh
+  optional integrations implicitly injected:
+  optional integrations not included: kubectl macos-gui electron chromium-headless chromium-full spotlight cleanshot clipboard 1password cloud-credentials agent-browser browser-native-messaging shell-init process-control lldb
+  keychain integration: not included
+  execution environment: sanitized allowlist (default)
+  selected scoped profiles: (none)
+  policy file: /tmp/agent-sandbox-policy.abc123
+  run mode: print policy path to stdout
+```
+</CodeGroup>
+
+---
+
+## Testing Policy Behavior
+
+### Run Tests
+
+```bash
+./tests/run.sh
+```
+
+Tests are section-based under `tests/sections/*.sh`, using helpers from `tests/lib/common.sh`:
+- `assert_allowed`: Verify operation succeeds inside sandbox
+- `assert_denied`: Verify operation fails inside sandbox
+- `assert_policy_contains`: Check for literal string in generated policy
+- `assert_policy_order_literal`: Verify rule ordering
+
+### Add a Test Section
+
+```bash
+# tests/sections/my-feature.sh
+section_begin "my feature behavior"
+
+assert_allowed "read from allowed path" \
+  cat /tmp/test-file
+
+assert_denied "write to system path" \
+  touch /System/test-file
+
+register_section
+```
+
+<Note>
+  If your session is already sandboxed, tests cannot run. State this explicitly in your PR and provide static validation instead.
+</Note>
+
+---
+
+## Key Takeaways
+
+<CardGroup cols={2}>
+  <Card title="Order Matters" icon="layer-group">
+    Policy rules are concatenated in fixed stage order. Later rules override earlier ones. Check assembly order first when debugging.
+  </Card>
+  
+  <Card title="Deterministic Assembly" icon="gears">
+    Lexicographic file sorting ensures identical policy output across machines and CI. Stage prefixes control module loading.
+  </Card>
+  
+  <Card title="Dependency Injection" icon="link">
+    Use `$$require=path/to/profile.sb$$` to auto-inject optional integrations when your agent/app profile is selected.
+  </Card>
+  
+  <Card title="Ancestor Literals" icon="folder-tree">
+    Directory grants include ancestor literals for traversal. Using `literal` (not `subpath`) keeps ancestor access safe.
+  </Card>
+</CardGroup>

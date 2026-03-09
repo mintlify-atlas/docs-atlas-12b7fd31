@@ -1,0 +1,428 @@
+---
+title: Customization
+description: Machine-local overrides, --append-profile, and when to use each approach
+---
+
+## Overview
+
+Agent Safehouse provides two primary customization mechanisms:
+
+1. **Machine-local overrides** (`.safehouse` config files)
+2. **`--append-profile` flag** (runtime policy overlays)
+
+Each serves different use cases. This guide explains when to use which approach.
+
+---
+
+## Machine-Local Overrides
+
+### Workdir Config Files
+
+Place a `.safehouse` file in your project root to configure project-specific grants:
+
+```bash
+# ~/projects/myapp/.safehouse
+SAFEHOUSE_ADD_DIRS_RO="$HOME/reference-repo:$HOME/docs"
+SAFEHOUSE_ADD_DIRS="$HOME/scratch"
+SAFEHOUSE_ENABLE="docker,kubectl,ssh"
+```
+
+<Warning>
+  Workdir config files are **untrusted by default**. You must explicitly opt in:
+
+  ```bash
+  safehouse --trust-workdir-config -- myagent
+  ```
+
+  Or set globally:
+
+  ```bash
+  export SAFEHOUSE_TRUST_WORKDIR_CONFIG=1
+  ```
+</Warning>
+
+### Shell Environment Variables
+
+Set environment variables in your shell profile (`~/.zshrc`, `~/.bashrc`):
+
+```bash
+# ~/.zshrc
+export SAFEHOUSE_ADD_DIRS_RO="$HOME/reference-docs:$HOME/design-assets"
+export SAFEHOUSE_ADD_DIRS="$HOME/scratch:$HOME/tmp-experiments"
+export SAFEHOUSE_ENABLE="docker,ssh,clipboard"
+export SAFEHOUSE_TRUST_WORKDIR_CONFIG=1
+```
+
+### Precedence Order
+
+When the same variable is set in multiple locations:
+
+<Steps>
+  <Step title="CLI flags (highest priority)">
+    ```bash
+    safehouse --enable=docker --add-dirs=/tmp/scratch -- myagent
+    ```
+  </Step>
+
+  <Step title="Environment variables">
+    ```bash
+    export SAFEHOUSE_ENABLE="ssh"
+    safehouse -- myagent
+    ```
+  </Step>
+
+  <Step title="Workdir config (lowest priority)">
+    ```bash
+    # .safehouse
+    SAFEHOUSE_ENABLE="kubectl"
+    ```
+  </Step>
+</Steps>
+
+<Info>
+  **Path grants are merged** across all sources (CLI + ENV + config). Later sources **append** to earlier ones.
+
+  **Feature flags** (`--enable`) are **replaced** (not merged). CLI `--enable` overrides ENV `SAFEHOUSE_ENABLE`, which overrides config `SAFEHOUSE_ENABLE`.
+</Info>
+
+---
+
+## `--append-profile` Flag
+
+### Purpose
+
+Append a custom `.sb` file to the end of the generated policy. This is the **final extension point** in the assembly order.
+
+```bash
+safehouse --append-profile=~/my-overrides.sb -- myagent
+```
+
+### Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Deny Sensitive Paths" icon="ban">
+    Block access to specific directories even if earlier rules allowed them:
+
+    ```scheme
+    ;; ~/deny-aws.sb
+    (deny file-read* file-write*
+        (home-subpath "/.aws")
+    )
+    ```
+
+    ```bash
+    safehouse --append-profile=~/deny-aws.sb -- myagent
+    ```
+  </Card>
+
+  <Card title="Ad-Hoc Grants" icon="unlock">
+    Quickly grant access to a new tool or path without editing committed profiles:
+
+    ```scheme
+    ;; ~/tmp-grants.sb
+    (allow file-read* file-write*
+        (subpath "/usr/local/mycorp-tool")
+    )
+    ```
+
+    ```bash
+    safehouse --append-profile=~/tmp-grants.sb -- myagent
+    ```
+  </Card>
+
+  <Card title="Testing Policy Changes" icon="flask">
+    Iterate on policy rules before committing them to the repository:
+
+    ```bash
+    # Test new rule
+    safehouse --append-profile=./test-rule.sb -- myagent
+
+    # Once validated, move to profiles/
+    mv test-rule.sb profiles/55-integrations-optional/my-feature.sb
+    ```
+  </Card>
+
+  <Card title="Environment-Specific Rules" icon="server">
+    Apply machine-specific grants without editing source profiles:
+
+    ```bash
+    # ~/machine-local.sb
+    (allow file-read*
+        (literal "/opt/local-tool/config.json")
+    )
+    ```
+
+    ```bash
+    safehouse --append-profile=~/machine-local.sb -- myagent
+    ```
+  </Card>
+</CardGroup>
+
+### Multiple Appended Profiles
+
+Pass `--append-profile` multiple times. They are concatenated in order:
+
+```bash
+safehouse \
+  --append-profile=~/base-overrides.sb \
+  --append-profile=~/project-specific.sb \
+  -- myagent
+```
+
+### Last Rule Wins
+
+Because `--append-profile` rules are emitted **last** in the policy assembly order, they override earlier rules:
+
+<CodeGroup>
+```scheme Earlier Rule (allowed)
+;; From 60-agents/myagent.sb
+(allow file-read* file-write*
+    (home-subpath "/.myagent")
+)
+```
+
+```scheme Appended Rule (denied)
+;; From --append-profile=~/deny-myagent.sb
+(deny file-read* file-write*
+    (home-subpath "/.myagent")
+)
+```
+</CodeGroup>
+
+The `deny` rule wins because it comes last.
+
+---
+
+## Comparison: When to Use Which
+
+| Scenario | Recommended Approach | Why |
+|----------|---------------------|-----|
+| **Project-specific extra directories** | Workdir `.safehouse` config | Per-project, version-controlled, no CLI friction |
+| **Machine-wide defaults** | Shell ENV vars (`~/.zshrc`) | Applies to all invocations, no per-project setup |
+| **One-off path grant for debugging** | CLI `--add-dirs=/tmp/foo` | Fastest, no file editing |
+| **Block sensitive path (e.g., `~/.ssh`)** | `--append-profile` with deny rule | Deny rules must come last to override allows |
+| **Test new integration before committing** | `--append-profile=./test.sb` | Iterate quickly without editing `profiles/` |
+| **Machine-specific tool access** | `--append-profile=~/machine-local.sb` | Persistent but not committed to repo |
+| **Enable Docker/SSH for all projects** | Shell ENV `SAFEHOUSE_ENABLE=docker,ssh` | Machine-wide, no per-project config |
+| **Temporary feature enable** | CLI `--enable=clipboard` | One-off, no config file changes |
+
+---
+
+## Example Workflows
+
+### Workflow 1: Project-Specific Reference Repo
+
+You're working on `~/projects/myapp` and need read-only access to `~/reference/design-system`.
+
+<Steps>
+  <Step title="Create workdir config">
+    ```bash
+    # ~/projects/myapp/.safehouse
+    SAFEHOUSE_ADD_DIRS_RO="$HOME/reference/design-system"
+    ```
+  </Step>
+
+  <Step title="Trust the config (once)">
+    ```bash
+    cd ~/projects/myapp
+    safehouse --trust-workdir-config -- myagent
+    ```
+
+    Or enable trust globally:
+
+    ```bash
+    echo 'export SAFEHOUSE_TRUST_WORKDIR_CONFIG=1' >> ~/.zshrc
+    source ~/.zshrc
+    ```
+  </Step>
+
+  <Step title="Run agent">
+    ```bash
+    cd ~/projects/myapp
+    safehouse -- myagent
+    ```
+
+    The agent now has read-only access to `~/reference/design-system`.
+  </Step>
+</Steps>
+
+---
+
+### Workflow 2: Block Cloud Credentials
+
+You want to ensure agents never access `~/.aws` or `~/.config/gcloud`, even if `cloud-credentials` integration is enabled.
+
+<Steps>
+  <Step title="Create deny profile">
+    ```scheme
+    ;; ~/deny-cloud.sb
+    (deny file-read* file-write*
+        (home-subpath "/.aws")
+        (home-subpath "/.config/gcloud")
+        (home-subpath "/.azure")
+    )
+    ```
+  </Step>
+
+  <Step title="Run with appended profile">
+    ```bash
+    safehouse --append-profile=~/deny-cloud.sb -- myagent
+    ```
+  </Step>
+
+  <Step title="Make it persistent (optional)">
+    Add to shell ENV:
+
+    ```bash
+    # ~/.zshrc
+    export SAFEHOUSE_APPEND_PROFILE="$HOME/deny-cloud.sb"
+    ```
+
+    Now all `safehouse` invocations include the deny rules.
+  </Step>
+</Steps>
+
+<Warning>
+  `--append-profile` paths are **not** automatically resolved in ENV vars. Use absolute paths or `$HOME`:
+
+  ```bash
+  # ✅ Correct
+  export SAFEHOUSE_APPEND_PROFILE="$HOME/deny-cloud.sb"
+
+  # ❌ Incorrect (won't expand ~)
+  export SAFEHOUSE_APPEND_PROFILE="~/deny-cloud.sb"
+  ```
+</Warning>
+
+---
+
+### Workflow 3: Machine-Wide Docker + SSH
+
+You want Docker and SSH enabled for all agent invocations on your machine.
+
+<Steps>
+  <Step title="Set ENV var">
+    ```bash
+    # ~/.zshrc
+    export SAFEHOUSE_ENABLE="docker,ssh"
+    ```
+  </Step>
+
+  <Step title="Reload shell">
+    ```bash
+    source ~/.zshrc
+    ```
+  </Step>
+
+  <Step title="Verify">
+    ```bash
+    safehouse --explain --stdout 2>&1 | grep "optional integrations explicitly enabled"
+    ```
+
+    Output:
+    ```
+    optional integrations explicitly enabled: docker ssh
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Debugging Overrides
+
+### Inspect Effective Config
+
+Use `--explain` to see which config sources were loaded:
+
+```bash
+safehouse --explain --stdout
+```
+
+<CodeGroup>
+```bash Output
+safehouse explain:
+  effective workdir: /Users/alice/projects/myapp (source: PWD)
+  workdir config trust: enabled (source: CLI flag)
+  workdir config: loaded from /Users/alice/projects/myapp/.safehouse
+  add-dirs-ro (normalized): /Users/alice/reference-docs /Users/alice/design-assets
+  add-dirs (normalized): /Users/alice/scratch
+  optional integrations explicitly enabled: docker ssh clipboard
+  ...
+```
+</CodeGroup>
+
+### Check Policy for Appended Rules
+
+Generate policy and search for your appended profile:
+
+```bash
+safehouse --append-profile=~/my-overrides.sb --stdout > /tmp/policy.sb
+grep -A 5 "#safehouse-test-id:append-profile#" /tmp/policy.sb
+```
+
+<CodeGroup>
+```scheme Output
+;; #safehouse-test-id:append-profile# Appended profile from --append-profile: /Users/alice/my-overrides.sb
+
+(deny file-read* file-write*
+    (home-subpath "/.aws")
+)
+```
+</CodeGroup>
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Workdir Config for Projects" icon="folder">
+    Commit `.safehouse` to your repo for team-shared project grants. Keep machine-specific overrides in ENV or `--append-profile`.
+  </Card>
+
+  <Card title="Use ENV for Machine Defaults" icon="terminal">
+    Set `SAFEHOUSE_ENABLE`, `SAFEHOUSE_ADD_DIRS_RO` in `~/.zshrc` for your personal workflow defaults.
+  </Card>
+
+  <Card title="Use --append-profile for Denies" icon="shield">
+    Deny rules must come last to override allows. `--append-profile` is the only way to guarantee last-rule-wins.
+  </Card>
+
+  <Card title="Test Before Committing" icon="vial">
+    Use `--append-profile=./test.sb` to iterate on new rules before moving them to `profiles/`.
+  </Card>
+</CardGroup>
+
+---
+
+## Environment Variable Reference
+
+| Variable | Type | Description | Example |
+|----------|------|-------------|----------|
+| `SAFEHOUSE_ENABLE` | String (CSV) | Comma-separated optional integration features | `docker,ssh,clipboard` |
+| `SAFEHOUSE_ADD_DIRS_RO` | String (colon-separated) | Read-only directory grants | `$HOME/docs:$HOME/reference` |
+| `SAFEHOUSE_ADD_DIRS` | String (colon-separated) | Read/write directory grants | `$HOME/scratch:/tmp/work` |
+| `SAFEHOUSE_APPEND_PROFILE` | String (colon-separated) | Paths to `.sb` files to append | `$HOME/overrides.sb:$HOME/deny.sb` |
+| `SAFEHOUSE_WORKDIR` | String (path) | Override working directory | `/Users/alice/projects/myapp` |
+| `SAFEHOUSE_TRUST_WORKDIR_CONFIG` | `1` or `0` | Enable workdir config trust | `1` |
+
+<Info>
+  All path variables (`SAFEHOUSE_ADD_DIRS_RO`, `SAFEHOUSE_ADD_DIRS`, `SAFEHOUSE_APPEND_PROFILE`) support colon-separated lists:
+
+  ```bash
+  export SAFEHOUSE_ADD_DIRS_RO="$HOME/docs:$HOME/reference:$HOME/assets"
+  ```
+</Info>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Write Custom Profiles" href="/advanced/custom-profiles" icon="code">
+    Learn how to write your own `.sb` files with matchers and real examples.
+  </Card>
+
+  <Card title="Policy Architecture" href="/advanced/policy-architecture" icon="layer-group">
+    Understand assembly order, profile layers, and dependency system.
+  </Card>
+</CardGroup>

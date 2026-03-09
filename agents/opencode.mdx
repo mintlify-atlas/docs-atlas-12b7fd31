@@ -1,0 +1,55 @@
+---
+title: "OpenCode"
+description: "Open-source CLI/TUI agent with minimal dependencies"
+---
+
+## Overview
+
+OpenCode is an open-source AI coding agent with CLI/TUI interfaces.
+
+<Info>
+**Binary paths:**
+- `~/.opencode/bin/opencode`
+- `~/.local/bin/opencode`
+- `~/bin/opencode`
+
+**Config:** `~/.opencode/`, `~/.config/opencode/`
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.opencode/bin/opencode")
+    (home-prefix "/.local/bin/opencode")
+    (home-prefix "/bin/opencode")
+    (home-subpath "/.opencode")
+    (home-subpath "/.config/opencode")
+    (home-subpath "/.cache/opencode")
+    (home-subpath "/.local/share/opencode")
+    (home-subpath "/.local/share/opentui")
+    (home-subpath "/.local/state/opencode")
+    (home-literal "/.opencode.json")
+)
+
+(allow file-read*
+    (home-subpath "/.config/github-copilot")
+)
+```
+
+## Running in Safehouse
+
+```bash
+# Basic usage
+safehouse --enable=network --add-dirs="$PWD" -- opencode
+
+# With GitHub Copilot token
+safehouse --enable=network --add-dirs="$PWD" \
+    --add-dirs-ro="$HOME/.config/github-copilot" -- opencode
+```
+
+## Integration Notes
+
+- Reads GitHub Copilot token from `~/.config/github-copilot` for auth
+- Config file: `~/.opencode.json` (home-dir config)
+- XDG-compliant directories for state/cache

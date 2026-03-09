@@ -1,0 +1,108 @@
+---
+title: "Goose"
+description: "Block's open-source Rust agent with native keyring integration"
+---
+
+## Overview
+
+Goose is an open-source Rust coding agent with CLI, desktop app (Electron), and server modes. Uses system keyring for credentials.
+
+<Info>
+**Binary path:** `~/.local/bin/goose`  
+**Config:** `~/Library/Application Support/Block.goose/` (macOS)  
+**Dependencies:** `$$require=55-integrations-optional/keychain.sb$$`  
+**License:** Apache-2.0 (open source)
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/goose")
+    (home-subpath "/.goose")
+    (home-subpath "/.config/goose")
+    (home-subpath "/.cache/goose")
+    (home-subpath "/.local/share/goose")
+    (home-subpath "/.local/state/goose")
+    (home-subpath "/Library/Application Support/Block.goose")
+)
+```
+
+## Running in Safehouse
+
+```bash
+# Interactive mode
+safehouse --enable=keychain,network --add-dirs="$PWD" -- goose
+
+# Web mode (binds port 3000)
+safehouse --enable=keychain,network --add-dirs="$PWD" \
+    --append-profile=<(echo '(allow network-bind (local tcp \"localhost:3000\"))') \
+    -- goose web
+```
+
+## Execution Modes
+
+1. **CLI (Interactive)** -- Custom TUI with rustyline/cliclack/bat
+2. **Desktop App** -- Electron app (React + HTTP/WebSocket to `goosed`)
+3. **Web mode** -- `goose web` binds axum server on port 3000
+4. **Server** -- `goosed` binary (HTTP/WebSocket API)
+
+## Keyring Integration
+
+Goose uses the `keyring` crate with:
+- **macOS:** `apple-native` (Security.framework)
+- **Linux:** `sync-secret-service` (D-Bus)
+- **Windows:** `windows-native` (Credential Manager)
+
+Service name: `goose`, username: `secrets`
+
+Fallback: `~/.config/goose/secrets.yaml` (plaintext YAML)
+
+## OAuth Flows
+
+| Provider | Port | Endpoints |
+|----------|------|-----------|
+| MCP OAuth | Random (`127.0.0.1:0`) | Dynamic per-server |
+| Databricks | Configured | `databricks/oauth` |
+| ChatGPT/Codex | `127.0.0.1:16372` | OpenAI auth |
+| OpenRouter | `127.0.0.1:3000` | `openrouter.ai` |
+| Tetrate | `127.0.0.1:3000` | Tetrate endpoints |
+
+## MCP Extension Servers
+
+Goose includes built-in MCP servers:
+- **Developer** -- File editing, shell, screen capture, memory
+- **Computer Controller** -- AppleScript (macOS), shell automation
+- **Memory** -- Project-local and global storage
+- **Tutorial** -- Onboarding/help
+- **Auto-visualiser** -- Data visualization
+
+## Screen Capture
+
+Uses `xcap` crate for screenshots:
+- Full display capture
+- Specific window capture
+- Window list enumeration
+
+## Security Considerations
+
+<Warning>
+**No built-in sandboxing.** Goose runs with full user permissions.
+
+**Critical capabilities:**
+- Arbitrary shell execution via developer extension
+- macOS AppleScript (`osascript -e`) for full system automation
+- Screen capture (reads screen contents)
+- Docker control (`docker exec/run`)
+</Warning>
+
+## Configuration Files
+
+| Path | Purpose |
+|------|---------|
+| `~/.config/goose/config.yaml` | Main config |
+| `~/.config/goose/secrets.yaml` | Fallback secrets (if keyring disabled) |
+| `~/.config/goose/custom_providers/` | Custom model definitions |
+| `~/.config/goose/recipes/` | Global recipes |
+| `~/.config/goose/memory/` | Global memory |
+| `~/.local/share/goose/sessions/sessions.db` | SQLite session storage |

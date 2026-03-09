@@ -1,0 +1,412 @@
+---
+title: "FAQ"
+description: "Frequently asked questions about Agent Safehouse"
+icon: "circle-question"
+---
+
+Common questions about using and configuring Agent Safehouse.
+
+## General
+
+<AccordionGroup>
+
+<Accordion title="What is Agent Safehouse?" icon="shield-halved">
+Agent Safehouse is a macOS sandbox wrapper for LLM coding agents built on `sandbox-exec`. It uses a deny-first security model with composable policy profiles to give agents access only to the files and integrations they need.
+
+It's designed as a practical hardening layer for daily agent workflows, not a perfect security boundary against determined attackers.
+</Accordion>
+
+<Accordion title="Which agents does it support?" icon="robot">
+Agent Safehouse supports major coding agents including:
+
+- Claude Code
+- Cursor (agent mode)
+- Aider
+- Codex
+- Amp
+- Gemini CLI
+- Goose
+- Kilo
+- Pi
+- And more
+
+The sandbox automatically detects agents and applies appropriate profiles. You can also use `--enable=all-agents` to load all agent profiles at once.
+</Accordion>
+
+<Accordion title="Does it work on Linux or Windows?" icon="laptop">
+No, Agent Safehouse is macOS-only. It uses `sandbox-exec`, which is specific to macOS.
+
+For cross-platform sandboxing, see [Anthropic's sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime).
+</Accordion>
+
+<Accordion title="Is it safe to use with sensitive projects?" icon="lock">
+Agent Safehouse reduces risk by limiting agent access, but it's not a perfect security boundary. Consider it a hardening layer.
+
+**It helps with:**
+- Accidental file access outside project scope
+- Limiting agent access to credentials and sensitive paths
+- Reducing network exposure
+
+**It doesn't protect against:**
+- Determined attackers with sandbox escape exploits
+- Malicious agents actively trying to bypass restrictions
+- Vulnerabilities in the agent software itself
+
+For sensitive work, combine sandboxing with other security practices: code review, separate environments, and minimal credential access.
+</Accordion>
+
+<Accordion title="What's the performance impact?" icon="gauge-high">
+Minimal. `sandbox-exec` is lightweight and built into macOS. The overhead is primarily from policy evaluation on file access, which is negligible for typical agent workflows.
+</Accordion>
+
+</AccordionGroup>
+
+## Configuration
+
+<AccordionGroup>
+
+<Accordion title="How does workdir detection work?" icon="folder-tree">
+Agent Safehouse automatically detects your working directory:
+
+1. Starts from current directory (`$PWD`)
+2. Searches up for git root (`.git` directory)
+3. Uses git root if found, otherwise uses current directory
+4. Grants read/write access to the detected directory
+
+You can override this:
+
+```bash
+# Explicit workdir
+safehouse --workdir=/path/to/project -- claude --dangerously-skip-permissions
+
+# Disable automatic workdir grant
+safehouse --workdir= --add-dirs=/path/to/project -- claude --dangerously-skip-permissions
+```
+
+Verify detection:
+
+```bash
+safehouse --explain --stdout
+```
+</Accordion>
+
+<Accordion title="What's allowed by default?" icon="check">
+By default, Agent Safehouse allows:
+
+- **Workdir access**: Read/write to detected project directory
+- **Core integrations**: Git and SCM CLIs
+- **Toolchains**: Node, Python, Rust, Go, etc.
+- **System runtime**: Libraries, shells, compilers
+- **Network**: Full network access
+- **SSH metadata**: Config and known_hosts (not private keys)
+
+See the [Default Assumptions](/concepts/default-assumptions) page for complete details.
+</Accordion>
+
+<Accordion title="How do I enable Docker, kubectl, or cloud CLIs?" icon="cloud">
+These integrations are opt-in. Enable them with `--enable`:
+
+```bash
+# Docker socket access
+safehouse --enable=docker -- claude --dangerously-skip-permissions
+
+# Kubernetes config/cache
+safehouse --enable=kubectl -- claude --dangerously-skip-permissions
+
+# Cloud credentials (AWS, GCP, Azure)
+safehouse --enable=cloud-credentials -- claude --dangerously-skip-permissions
+
+# Multiple integrations
+safehouse --enable=docker,kubectl,cloud-credentials -- claude --dangerously-skip-permissions
+```
+</Accordion>
+
+<Accordion title="How do I grant access to additional directories?" icon="folder-plus">
+Use `--add-dirs-ro` (read-only) or `--add-dirs` (read/write):
+
+```bash
+# Read-only access to reference repos
+safehouse --add-dirs-ro=/repos/shared-lib:/repos/docs -- claude --dangerously-skip-permissions
+
+# Writable access to scratch space
+safehouse --add-dirs=/tmp/scratch -- claude --dangerously-skip-permissions
+
+# Single file access
+safehouse --add-dirs-ro=~/.gitignore -- claude --dangerously-skip-permissions
+```
+
+Multiple paths are colon-separated (`:`).
+</Accordion>
+
+<Accordion title="Can I use a config file?" icon="file-code">
+Yes, create a `.safehouse` file in your project directory:
+
+```bash
+cat > .safehouse <<'EOF'
+add-dirs-ro=/repos/shared-lib
+add-dirs=/tmp/scratch
+enable=docker,kubectl
+EOF
+```
+
+Then run with `--trust-workdir-config`:
+
+```bash
+safehouse --trust-workdir-config -- claude --dangerously-skip-permissions
+```
+
+<Warning>
+Only use `--trust-workdir-config` in projects you control. Config files can escalate privileges.
+</Warning>
+</Accordion>
+
+<Accordion title="How do I pass environment variables?" icon="dollar-sign">
+Safehouse uses a sanitized environment by default. Pass variables explicitly:
+
+```bash
+# Specific variables
+safehouse --env-pass=OPENAI_API_KEY,ANTHROPIC_API_KEY -- claude --dangerously-skip-permissions
+
+# All environment
+safehouse --env -- claude --dangerously-skip-permissions
+
+# From file
+safehouse --env=./agent.env -- claude --dangerously-skip-permissions
+```
+</Accordion>
+
+</AccordionGroup>
+
+## Desktop Apps
+
+<AccordionGroup>
+
+<Accordion title="How do I sandbox Claude Desktop or VS Code?" icon="desktop">
+For Electron apps, use `--enable=electron` and launch with `--no-sandbox`:
+
+```bash
+# Claude Desktop
+safehouse --enable=electron -- /Applications/Claude.app/Contents/MacOS/Claude --no-sandbox
+
+# VS Code
+safehouse --enable=electron -- "/Applications/Visual Studio Code.app/Contents/MacOS/Electron" --no-sandbox
+```
+
+For VS Code with multiple agent extensions:
+
+```bash
+safehouse --workdir=~/projects --enable=electron,all-agents,wide-read -- "/Applications/Visual Studio Code.app/Contents/MacOS/Electron" --no-sandbox
+```
+</Accordion>
+
+<Accordion title="Why do I need --no-sandbox?" icon="atom">
+Electron apps have their own built-in Chromium sandbox. When you run `sandbox-exec` around Electron, you create nested sandboxes, which causes errors.
+
+The `--no-sandbox` flag disables Electron's internal sandbox, allowing `sandbox-exec` to be the only sandbox layer.
+</Accordion>
+
+<Accordion title="What about the one-file Claude launchers?" icon="rocket">
+Agent Safehouse provides ready-to-use launchers:
+
+```bash
+# Online launcher (downloads latest policy)
+curl -fsSL https://raw.githubusercontent.com/eugene1g/agent-safehouse/main/dist/Claude.app.sandboxed.command \
+  -o ~/Downloads/Claude.app.sandboxed.command
+chmod +x ~/Downloads/Claude.app.sandboxed.command
+
+# Offline launcher (embedded policy)
+curl -fsSL https://raw.githubusercontent.com/eugene1g/agent-safehouse/main/dist/Claude.app.sandboxed-offline.command \
+  -o ~/Downloads/Claude.app.sandboxed-offline.command
+chmod +x ~/Downloads/Claude.app.sandboxed-offline.command
+```
+
+Double-click to launch Claude Desktop in a sandbox. The workdir will be the folder containing the launcher file.
+</Accordion>
+
+</AccordionGroup>
+
+## Advanced Usage
+
+<AccordionGroup>
+
+<Accordion title="Can I customize the sandbox policy?" icon="code">
+Yes, use `--append-profile` to add custom rules:
+
+```bash
+safehouse --append-profile=/path/to/custom.sb -- claude --dangerously-skip-permissions
+```
+
+Create a custom profile:
+
+```scheme
+;; custom.sb
+(allow file-read*
+  (home-literal "/.lldbinit")
+  (home-subpath "/Library/Application Support/CleanShot/media")
+)
+
+;; Deny sensitive paths
+(deny file-read* file-write*
+  (home-subpath "/.aws/credentials")
+)
+```
+
+Rules in `--append-profile` are loaded last and take precedence.
+</Accordion>
+
+<Accordion title="How do I create machine-specific defaults?" icon="computer">
+Use a shell wrapper with environment variables:
+
+```bash
+# ~/.zshrc
+export SAFEHOUSE_APPEND_PROFILE="$HOME/.config/agent-safehouse/local-overrides.sb"
+
+safe() {
+  safehouse \
+    --add-dirs-ro="$HOME/reference-docs" \
+    --append-profile="$SAFEHOUSE_APPEND_PROFILE" \
+    "$@"
+}
+
+claudeset() { safe claude --dangerously-skip-permissions "$@"; }
+```
+
+This keeps machine-specific settings out of shared project configs.
+</Accordion>
+
+<Accordion title="How do I debug what's in the policy?" icon="magnifying-glass">
+Inspect the assembled policy:
+
+```bash
+# Print full policy
+safehouse --stdout
+
+# Explain workdir and grants
+safehouse --explain --stdout
+
+# Save policy for inspection
+safehouse --stdout > policy.sb
+```
+</Accordion>
+
+<Accordion title="Can I use this with CI/CD?" icon="gears">
+Yes, but consider whether sandboxing adds value in CI environments:
+
+**Useful for:**
+- Testing sandbox compatibility
+- Validating agent behavior under restrictions
+- Hardening agent-driven deployments
+
+**May not be needed:**
+- CI already runs in isolated containers
+- Overhead may slow builds
+- Sandbox policy maintenance adds complexity
+
+If using in CI, install and run as normal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eugene1g/agent-safehouse/main/dist/safehouse.sh -o /usr/local/bin/safehouse
+chmod +x /usr/local/bin/safehouse
+safehouse --workdir="$GITHUB_WORKSPACE" -- your-agent
+```
+</Accordion>
+
+<Accordion title="What if I need broader file access?" icon="folder-open">
+Use `--enable=wide-read` for broad read-only visibility:
+
+```bash
+safehouse --enable=wide-read -- claude --dangerously-skip-permissions
+```
+
+<Warning>
+This is a convenience mode that grants extensive read access. Use it only when necessary and understand the trade-offs.
+</Warning>
+
+For specific paths, prefer explicit grants:
+
+```bash
+safehouse --add-dirs-ro=/path/one:/path/two -- claude --dangerously-skip-permissions
+```
+</Accordion>
+
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+
+<Accordion title="How do I see what's being denied?" icon="ban">
+Use macOS unified logging:
+
+```bash
+/usr/bin/log stream --style compact --predicate 'eventMessage CONTAINS "Sandbox:" AND eventMessage CONTAINS "deny("'
+```
+
+See the [Troubleshooting](/reference/troubleshooting) page for detailed debugging techniques.
+</Accordion>
+
+<Accordion title="Why are my tests failing?" icon="flask">
+Agent Safehouse tests require:
+
+1. **macOS with `sandbox-exec`**
+2. **Not running inside an existing sandbox**
+
+If you're already sandboxed, tests will fail. Exit the sandbox or run tests in a non-sandboxed terminal.
+
+Verify you're outside a sandbox:
+
+```bash
+if [ -n "$APP_SANDBOX_CONTAINER_ID" ]; then
+  echo "Running in sandbox"
+else
+  echo "Not sandboxed"
+fi
+```
+</Accordion>
+
+<Accordion title="Where can I get help?" icon="life-ring">
+<CardGroup cols={2}>
+
+<Card title="Troubleshooting Guide" icon="wrench" href="/reference/troubleshooting">
+  Common issues and solutions.
+</Card>
+
+<Card title="GitHub Issues" icon="github" href="https://github.com/eugene1g/agent-safehouse/issues">
+  Report bugs or ask questions.
+</Card>
+
+</CardGroup>
+</Accordion>
+
+</AccordionGroup>
+
+## Contributing
+
+<AccordionGroup>
+
+<Accordion title="How can I contribute?" icon="code-pull-request">
+Contributions are welcome! See the [Contributing Guide](https://github.com/eugene1g/agent-safehouse/blob/main/CONTRIBUTING.md) for:
+
+- Project structure
+- Policy authoring guidelines
+- Testing requirements
+- Pull request process
+
+Key areas for contribution:
+- New agent profiles
+- Toolchain support
+- Documentation improvements
+- Test coverage
+</Accordion>
+
+<Accordion title="How do I add support for a new agent?" icon="robot">
+1. Create a profile in `profiles/60-agents/<agent-name>.sb`
+2. Add tests in `tests/sections/`
+3. Run `./scripts/generate-dist.sh`
+4. Test with the actual agent
+5. Submit a pull request
+
+See existing agent profiles for examples.
+</Accordion>
+
+</AccordionGroup>

@@ -1,0 +1,81 @@
+---
+title: "Droid (Factory CLI)"
+description: "Model-agnostic AI agent with hierarchical security policies"
+---
+
+## Overview
+
+Droid (Factory CLI) is a Bun-based coding agent with interactive TUI, headless exec mode, and risk-tiered autonomy levels.
+
+<Info>
+**Binary path:** `~/.local/bin/droid`  
+**Config:** `~/.factory/`  
+**License:** Proprietary (Factory AI)
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/droid")
+    (home-subpath "/.factory")
+)
+```
+
+## Running in Safehouse
+
+```bash
+# Interactive mode
+safehouse --enable=network --add-dirs="$PWD" -- droid
+
+# Headless exec mode
+safehouse --enable=network --add-dirs="$PWD" -- droid exec "query"
+```
+
+## Autonomy Levels
+
+| Level | Capabilities |
+|-------|-------------|
+| **Default** | Read-only: file reads, git diffs, `ls`, `git status` |
+| **Auto Low** | + File edits, formatters, read-only commands |
+| **Auto Medium** | + Package installs, builds, local git commits |
+| **Auto High** | + Git push, deploys, docker, migrations |
+| **`--skip-permissions-unsafe`** | ALL operations (no guardrails) |
+
+## Droid Shield (Secret Scanning)
+
+**Standard:**
+- Pattern-based API key/token detection
+- Scans `git commit`/`git push` diffs
+- Blocks if secrets detected
+
+**Shield Plus (Enterprise):**
+- Palo Alto Prisma AIRS AI scanning
+- Prompt injection detection
+- PII/financial data scanning
+- Toxic content detection
+
+## Hook System
+
+| Event | When | Can Block? |
+|-------|------|------------|
+| `PreToolUse` | Before tool execution | Yes |
+| `PostToolUse` | After completion | Feedback only |
+| `UserPromptSubmit` | Before prompt processing | Yes |
+| `Stop` | Droid finishes | Yes (force continue) |
+| `SessionStart` | Session start/resume | Context injection |
+
+## Plugin Architecture
+
+- **Skills** -- `~/.factory/skills/`, `.factory/skills/`
+- **Custom droids** -- `~/.factory/droids/`, `.factory/droids/`
+- **Commands** -- `~/.factory/commands/` (legacy)
+- **MCP servers** -- `mcp.json` config
+
+## Enterprise Features
+
+- SOC 2 Type II certified
+- SAML 2.0 / OIDC SSO
+- RBAC (Owner, Admin, User)
+- Zero data retention mode
+- Customer-managed encryption (BYOK)

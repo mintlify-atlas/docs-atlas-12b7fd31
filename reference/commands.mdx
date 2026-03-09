@@ -1,0 +1,194 @@
+---
+title: Commands
+description: Complete reference of safehouse command modes and usage patterns
+---
+
+Agent Safehouse operates in two distinct modes depending on whether you provide a command to execute.
+
+## Policy Mode
+
+Generates a sandbox policy file without executing a command. Use this mode when you want to inspect the policy or pass it to your own `sandbox-exec` invocation.
+
+### Print Policy Path
+
+```bash
+safehouse [policy options]
+```
+
+Generates a temporary policy file and prints its path to stdout.
+
+**Example:**
+```bash
+# Generate policy and capture path
+policy_path=$(safehouse --enable=docker)
+
+# Use with your own sandbox-exec command
+sandbox-exec -f "$policy_path" -- /usr/bin/true
+```
+
+### Print Policy Content
+
+```bash
+safehouse --stdout [policy options]
+```
+
+Prints the generated policy content directly to stdout instead of creating a file.
+
+**Example:**
+```bash
+# View the policy text
+safehouse --stdout
+
+# View policy with integrations enabled
+safehouse --stdout --enable=docker,kubectl
+
+# Save policy to a file
+safehouse --stdout > my-policy.sb
+```
+
+<Note>
+Policy mode is useful for:
+- Inspecting generated policies before execution
+- Debugging sandbox behavior
+- Creating reusable policy files
+- Understanding what permissions are granted
+</Note>
+
+## Execute Mode
+
+Generates a sandbox policy and immediately executes the specified command inside that sandbox.
+
+### Basic Execution
+
+```bash
+safehouse [policy options] -- <command> [args...]
+```
+
+The `--` separator is recommended to clearly distinguish policy options from command arguments.
+
+**Examples:**
+```bash
+# Run Claude CLI in sandbox
+safehouse -- claude --dangerously-skip-permissions
+
+# Run with Docker integration
+safehouse --enable=docker -- docker ps
+
+# Run with custom workdir
+safehouse --workdir=/path/to/project -- npm test
+```
+
+### Execution Without Separator
+
+```bash
+safehouse [policy options] <command> [args...]
+```
+
+You can omit `--` if the command is unambiguous (doesn't start with `--`).
+
+**Example:**
+```bash
+safehouse --enable=ssh git push origin main
+```
+
+<Warning>
+If your command arguments include options starting with `--`, always use the `--` separator to avoid ambiguity.
+</Warning>
+
+## Explain Mode
+
+Debugging mode that prints detailed information about policy decisions to stderr.
+
+```bash
+safehouse --explain [other options]
+```
+
+Shows:
+- Effective workdir and its source (flag, env, or default)
+- Path grants (read-only and read-write)
+- Selected agent profiles
+- Integration selections and reasons
+
+**Example:**
+```bash
+safehouse --explain --enable=docker --stdout
+```
+
+<Info>
+`--explain` is invaluable for troubleshooting:
+- Why certain files are accessible/inaccessible
+- Which profiles are being loaded
+- Where configuration values come from
+</Info>
+
+## Common Usage Patterns
+
+<CardGroup cols={2}>
+  <Card title="Quick Testing" icon="flask">
+    ```bash
+    # Test policy without execution
+    safehouse --stdout --enable=docker
+    ```
+  </Card>
+
+  <Card title="Development Workflow" icon="code">
+    ```bash
+    # Run agent with project access
+    safehouse --workdir=~/projects/myapp -- aider
+    ```
+  </Card>
+
+  <Card title="CI/CD Integration" icon="robot">
+    ```bash
+    # Sandbox test execution
+    safehouse --enable=docker -- npm run test:e2e
+    ```
+  </Card>
+
+  <Card title="Debugging" icon="bug">
+    ```bash
+    # Diagnose permission issues
+    safehouse --explain --enable=all-agents --stdout
+    ```
+  </Card>
+</CardGroup>
+
+## Command Resolution
+
+Safehouse automatically detects the command being executed and loads appropriate agent profiles:
+
+```bash
+# Loads Claude profile automatically
+safehouse -- claude
+
+# Detects npx wrapper and loads profile for actual command
+safehouse -- npx aider
+
+# Works with .app bundles
+safehouse -- /Applications/Claude.app/Contents/MacOS/Claude
+```
+
+### Supported Wrappers
+
+Safehouse looks through these wrapper commands to find the actual target:
+- `npx`
+- `bunx`
+- `uvx`
+- `pipx`
+- `xcrun`
+
+<Note>
+For wrappers, safehouse uses the second argument (the actual command name) for profile selection.
+</Note>
+
+## Exit Status
+
+In execute mode, safehouse exits with the same status code as the wrapped command:
+
+```bash
+safehouse -- false
+echo $?  # outputs: 1
+
+safehouse -- true
+echo $?  # outputs: 0
+```

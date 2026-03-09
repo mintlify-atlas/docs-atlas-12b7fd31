@@ -1,0 +1,87 @@
+---
+title: "Kilo Code"
+description: "VS Code extension (Cline fork) with cloud services and autocomplete"
+---
+
+## Overview
+
+Kilo Code is a VS Code extension forked from Cline/Roo Code, adding cloud integration, agent manager, autocomplete, and contribution tracking.
+
+<Info>
+**Extension ID:** `kilocode.kilo-code`  
+**Storage:** `~/Library/Application Support/Code/User/globalStorage/kilocode.kilo-code/`  
+**Dependencies:** `$$require=55-integrations-optional/keychain.sb$$`
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/kilo")
+    (home-prefix "/.local/bin/kilocode")
+    (home-subpath "/.kilocode")
+    (home-subpath "/.roo")
+    (home-subpath "/.config/kilo")
+    (home-subpath "/.cache/kilo")
+    (home-subpath "/.local/share/kilo")
+    (home-subpath "/.local/state/kilo")
+    (home-subpath "/Documents/Kilo-Code/MCP")
+    (home-subpath "/Library/Application Support/Code/User/globalStorage/kilocode.kilo-code")
+)
+
+(allow file-read*
+    (subpath "/Library/Application Support/RooCode")
+)
+```
+
+## Running in VS Code
+
+<Warning>
+**VS Code extensions cannot be directly sandboxed by Safehouse.** The extension runs in VS Code's Extension Host process.
+
+For isolation:
+1. Run VS Code in a container/VM
+2. Use `--add-dirs` to restrict workspace access
+3. Extensions inherit VS Code's network policy
+</Warning>
+
+## Key Features (Beyond Cline)
+
+- **Kilo Cloud** -- `api.kilo.ai` integration (auth, billing, orgs)
+- **Agent Manager** -- Multi-agent orchestration (forks Node.js processes)
+- **Managed Indexing** -- Cloud-based code indexing
+- **Autocomplete** -- Inline code completion (Continue.dev-derived)
+- **Speech-to-Text** -- FFmpeg audio capture + OpenAI Whisper
+- **Contribution Tracking** -- AI attribution to `kiloapps.io`
+
+## MDM Support
+
+**macOS:** `/Library/Application Support/RooCode/mdm.json`  
+**Linux:** `/etc/roo-code/mdm.json`  
+**Windows:** `%PROGRAMDATA%\RooCode\mdm.json`
+
+## Configuration Paths
+
+| Path | Purpose |
+|------|---------|
+| `~/.kilocode/` | Global config |
+| `~/.kilocode/skills/` | Global skills |
+| `~/.kilocode/rules/` | Global rules |
+| `{workspace}/.kilocode/` | Project config |
+| `{workspace}/.kilocodeignore` | Ignore patterns |
+| `~/Documents/Kilo-Code/MCP/` | MCP servers (macOS) |
+
+## Network Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `https://api.kilo.ai/*` | Kilo Cloud API |
+| `https://ai-attribution.kiloapps.io/*` | Contribution tracking |
+| `https://us.i.posthog.com` | PostHog telemetry |
+
+## Browser Automation
+
+Downloads Chromium via `puppeteer-chromium-resolver`:
+- Storage: `{globalStorage}/puppeteer/`
+- Size: ~150MB
+- Used for: LLM-driven browser automation, web scraping

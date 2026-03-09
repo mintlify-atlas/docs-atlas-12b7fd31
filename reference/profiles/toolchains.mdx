@@ -1,0 +1,420 @@
+---
+title: "Toolchain Profiles"
+description: "Language runtime permissions for Node.js, Python, Rust, Go, Java, Ruby, and more"
+---
+
+Toolchain profiles (`30-toolchains/*.sb`) grant agents access to language-specific package managers, caches, configuration files, and version managers. Each profile is carefully scoped to its ecosystem to maintain least-privilege access.
+
+## Available Toolchains
+
+<CardGroup cols={3}>
+  <Card title="Node.js" icon="node-js" iconType="brands">
+    npm, yarn, pnpm, corepack, nvm, fnm
+  </Card>
+  <Card title="Python" icon="python" iconType="brands">
+    pip, uv, poetry, pdm, pyenv, conda
+  </Card>
+  <Card title="Rust" icon="rust" iconType="brands">
+    cargo, rustup, sccache
+  </Card>
+  <Card title="Go" icon="golang" iconType="brands">
+    go modules, GOPATH, golangci-lint
+  </Card>
+  <Card title="Java" icon="java" iconType="brands">
+    Maven, Gradle, SBT, Coursier, sdkman
+  </Card>
+  <Card title="Ruby" icon="gem">
+    gem, bundler, rbenv, rvm
+  </Card>
+  <Card title="Bun" icon="b">
+    Bun runtime and package manager
+  </Card>
+  <Card title="Deno" icon="d">
+    Deno runtime and cache
+  </Card>
+  <Card title="PHP" icon="php" iconType="brands">
+    Composer and PHP tooling
+  </Card>
+  <Card title="Perl" icon="code">
+    CPAN and Perl modules
+  </Card>
+  <Card title="Runtime Managers" icon="layer-group">
+    mise, asdf, rtx
+  </Card>
+</CardGroup>
+
+<Info>
+  Toolchain profiles are **opt-in** via `--enable` flags. For example: `--enable=node --enable=python --enable=rust`
+</Info>
+
+## Node.js
+
+The Node.js profile supports npm, yarn, pnpm, corepack, and version managers like nvm and fnm.
+
+### Scope
+
+- **Version Managers**: `~/.nvm`, `~/.fnm`
+- **npm**: Config, cache, and global packages
+- **yarn**: Classic and modern (Berry) variants
+- **pnpm**: Store, state, and global packages
+- **corepack**: Package manager shimming
+- **Build Tools**: node-gyp, Turborepo, Playwright, Cypress
+
+<CodeGroup>
+```scheme node.sb
+;; Node version managers
+(allow file-read* file-write*
+    (home-subpath "/.nvm")
+    (home-subpath "/.fnm")
+
+    ;; npm
+    (home-subpath "/.npm")
+    (home-subpath "/.config/npm")
+    (home-subpath "/.cache/npm")
+    (home-literal "/.npmrc")
+
+    ;; pnpm
+    (home-subpath "/.config/pnpm")
+    (home-subpath "/.pnpm-state")
+    (home-subpath "/.pnpm-store")
+    (home-subpath "/.local/share/pnpm")
+    (home-subpath "/Library/pnpm")
+
+    ;; yarn
+    (home-subpath "/.yarn")
+    (home-literal "/.yarnrc")
+    (home-literal "/.yarnrc.yml")
+    (home-subpath "/.cache/yarn")
+
+    ;; corepack
+    (home-subpath "/.cache/node/corepack")
+
+    ;; Browser automation
+    (home-subpath "/Library/Caches/ms-playwright")
+    (home-subpath "/Library/Caches/Cypress")
+)
+```
+
+```bash Enable Node.js
+./bin/safehouse.sh --enable=node -- node --version
+./bin/safehouse.sh --enable=node -- npm install
+```
+</CodeGroup>
+
+<Warning>
+  The Node profile grants write access to package manager caches and global directories. Agents can install global packages and modify npm/yarn/pnpm configurations.
+</Warning>
+
+## Python
+
+The Python profile supports pip, uv, poetry, pdm, pyenv, conda, and various Python tooling.
+
+### Scope
+
+- **Package Managers**: pip, uv, poetry, pdm, pipx, conda
+- **Version Managers**: pyenv, conda/miniconda/miniforge
+- **Tools**: pre-commit, mypy, ruff, IPython, Jupyter
+- **Configuration**: `.pypirc`, `.python_history`
+
+<CodeGroup>
+```scheme python.sb
+(allow file-read* file-write*
+    ;; uv (modern Python package manager)
+    (home-literal "/.local/bin/uv")
+    (home-literal "/.local/bin/uvx")
+    (home-subpath "/.local/share/uv")
+    (home-subpath "/.cache/uv")
+    (home-subpath "/.config/uv")
+
+    ;; pip
+    (home-subpath "/.cache/pip")
+    (home-subpath "/.config/pip")
+    (home-literal "/.pypirc")
+
+    ;; poetry
+    (home-subpath "/.cache/pypoetry")
+    (home-subpath "/.config/pypoetry")
+    (home-subpath "/.local/share/pypoetry")
+
+    ;; pyenv
+    (home-subpath "/.pyenv")
+
+    ;; conda
+    (home-subpath "/.conda")
+    (home-subpath "/miniconda3")
+    (home-literal "/.condarc")
+
+    ;; Tools
+    (home-subpath "/.cache/pre-commit")
+    (home-subpath "/.cache/mypy")
+    (home-subpath "/.cache/ruff")
+)
+```
+
+```bash Enable Python
+./bin/safehouse.sh --enable=python -- python --version
+./bin/safehouse.sh --enable=python -- uv pip install requests
+```
+</CodeGroup>
+
+<Note>
+  The Python profile includes `uv`, the modern Python package manager. Agents can use both traditional pip and modern uv workflows.
+</Note>
+
+## Rust
+
+The Rust profile supports rustup, cargo, and optional sccache for build caching.
+
+### Scope
+
+- **Toolchain**: `~/.rustup` for Rust toolchain management
+- **Packages**: `~/.cargo` for crates and binaries
+- **Cache**: `~/.cache/cargo` and `~/Library/Caches/cargo`
+- **Build Cache**: sccache for distributed compilation
+
+<CodeGroup>
+```scheme rust.sb
+(allow file-read* file-write*
+    (home-subpath "/.cargo")
+    (home-subpath "/.config/cargo")
+    (home-subpath "/.rustup")
+    (home-subpath "/.cache/cargo")
+    (home-subpath "/Library/Caches/cargo")
+    (home-subpath "/.cache/sccache")
+    (home-subpath "/Library/Caches/sccache")
+    (home-subpath "/Library/Application Support/Mozilla.sccache")
+)
+```
+
+```bash Enable Rust
+./bin/safehouse.sh --enable=rust -- rustc --version
+./bin/safehouse.sh --enable=rust -- cargo build
+```
+</CodeGroup>
+
+## Go
+
+The Go profile supports Go modules, GOPATH, and Go tooling.
+
+### Scope
+
+- **GOPATH**: `~/go` for Go workspace and packages
+- **Build Cache**: `~/.cache/go-build` and `~/Library/Caches/go-build`
+- **Modules**: GOMODCACHE within GOPATH
+- **Tools**: golangci-lint, gopls
+- **Version Manager**: goenv
+
+<CodeGroup>
+```scheme go.sb
+(allow file-read* file-write*
+    (home-subpath "/go")
+    (home-subpath "/.cache/go-build")
+    (home-subpath "/Library/Caches/go-build")
+    (home-subpath "/.config/go")
+    (home-subpath "/.cache/golangci-lint")
+    (home-subpath "/.config/golangci-lint")
+    (home-subpath "/.goenv")
+    (home-subpath "/.cache/gopls")
+)
+```
+
+```bash Enable Go
+./bin/safehouse.sh --enable=go -- go version
+./bin/safehouse.sh --enable=go -- go build ./...
+```
+</CodeGroup>
+
+<Accordion title="Customize GOPATH location">
+  If your GOPATH is not `~/go`, you'll need to add a custom path grant:
+  
+  ```bash
+  ./bin/safehouse.sh --enable=go --add-dirs="/custom/gopath" -- go build
+  ```
+</Accordion>
+
+## Java
+
+The Java profile supports Maven, Gradle, SBT, Coursier, and Java version managers.
+
+### Scope
+
+- **Maven**: `~/.m2` for Maven repository and settings
+- **Gradle**: `~/.gradle` for Gradle cache and daemon
+- **SBT**: `~/.sbt` and `~/.ivy2` for Scala build tool
+- **Coursier**: Scala dependency cache
+- **Version Managers**: jenv, sdkman
+
+<CodeGroup>
+```scheme java.sb
+(allow file-read* file-write*
+    (home-subpath "/.m2")
+    (home-subpath "/.gradle")
+    (home-subpath "/.ivy2")
+    (home-subpath "/.sbt")
+    (home-subpath "/.jenv")
+    (home-subpath "/.sdkman")
+    (home-subpath "/.cache/coursier")
+    (home-subpath "/.coursier")
+    (home-subpath "/Library/Application Support/Coursier")
+    (home-literal "/.mavenrc")
+)
+```
+
+```bash Enable Java
+./bin/safehouse.sh --enable=java -- mvn clean install
+./bin/safehouse.sh --enable=java -- gradle build
+```
+</CodeGroup>
+
+## Ruby
+
+The Ruby profile supports gem, bundler, and Ruby version managers.
+
+### Scope
+
+- **Version Managers**: rbenv, rvm, ruby-build
+- **Gems**: `~/.gem` for gem installations
+- **Bundler**: `~/.bundle` and bundler cache
+- **REPL**: IRB and Pry history
+
+<CodeGroup>
+```scheme ruby.sb
+(allow file-read* file-write*
+    (home-subpath "/.rbenv")
+    (home-subpath "/.rvm")
+    (home-subpath "/.rubies")
+    (home-subpath "/.bundle")
+    (home-subpath "/.gem")
+    (home-subpath "/.cache/bundler")
+    (home-subpath "/.cache/rubygems")
+    (home-literal "/.gemrc")
+    (home-literal "/.irbrc")
+    (home-literal "/.irb_history")
+    (home-literal "/.pryrc")
+)
+```
+
+```bash Enable Ruby
+./bin/safehouse.sh --enable=ruby -- ruby --version
+./bin/safehouse.sh --enable=ruby -- bundle install
+```
+</CodeGroup>
+
+## Other Toolchains
+
+<Accordion title="Bun">
+  Fast JavaScript runtime and package manager:
+  
+  ```scheme
+  (allow file-read* file-write*
+      (home-subpath "/.bun")
+      (home-subpath "/.cache/bun")
+      (home-literal "/.bunfig.toml")
+  )
+  ```
+  
+  Enable with: `--enable=bun`
+</Accordion>
+
+<Accordion title="Deno">
+  Secure TypeScript/JavaScript runtime:
+  
+  ```scheme
+  (allow file-read* file-write*
+      (home-subpath "/.deno")
+      (home-subpath "/.cache/deno")
+  )
+  ```
+  
+  Enable with: `--enable=deno`
+</Accordion>
+
+<Accordion title="PHP">
+  PHP runtime and Composer:
+  
+  Enable with: `--enable=php`
+</Accordion>
+
+<Accordion title="Perl">
+  Perl runtime and CPAN:
+  
+  Enable with: `--enable=perl`
+</Accordion>
+
+<Accordion title="Runtime Managers (mise/asdf/rtx)">
+  Multi-language version managers:
+  
+  Enable with: `--enable=runtime-managers`
+</Accordion>
+
+## Multiple Toolchains
+
+You can enable multiple toolchains simultaneously:
+
+```bash
+./bin/safehouse.sh \
+  --enable=node \
+  --enable=python \
+  --enable=rust \
+  --enable=go \
+  -- ./my-polyglot-build.sh
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Enable only what you need" icon="filter">
+    Only enable toolchains your project actually uses. This minimizes the attack surface and maintains least-privilege access.
+  </Card>
+  
+  <Card title="Use version managers" icon="clock-rotate-left">
+    Toolchain profiles support common version managers (nvm, pyenv, rbenv, etc.). Use them to manage multiple language versions.
+  </Card>
+  
+  <Card title="Cache locations matter" icon="box-archive">
+    Profiles grant access to both XDG-style (`~/.cache`) and macOS-style (`~/Library/Caches`) locations for compatibility.
+  </Card>
+  
+  <Card title="Custom paths require grants" icon="folder-plus">
+    If you use non-standard installation paths, add them via `--add-dirs` or `--add-dirs-ro`.
+  </Card>
+</CardGroup>
+
+## Authoring Custom Toolchain Profiles
+
+If you need a toolchain not included in Agent Safehouse:
+
+1. **Create a new profile**: `profiles/30-toolchains/my-toolchain.sb`
+2. **Add standard header**:
+   ```scheme
+   ;; ---------------------------------------------------------------------------
+   ;; Toolchain: My Toolchain
+   ;; Brief description of what this toolchain includes.
+   ;; Source: 30-toolchains/my-toolchain.sb
+   ;; ---------------------------------------------------------------------------
+   ```
+3. **Grant minimal permissions**:
+   ```scheme
+   (allow file-read* file-write*
+       (home-subpath "/.my-toolchain")
+       (home-subpath "/.cache/my-toolchain")
+   )
+   ```
+4. **Regenerate dist artifacts**: `./scripts/generate-dist.sh`
+5. **Add tests**: Create `tests/sections/toolchain-my-toolchain.sh`
+
+<Warning>
+  Custom toolchain profiles should follow the principle of least privilege. Only grant access to paths your toolchain actually needs.
+</Warning>
+
+## Related Profiles
+
+<CardGroup cols={2}>
+  <Card title="System Runtime" icon="gears" href="/reference/profiles/system-runtime">
+    Foundation for process execution that toolchains depend on
+  </Card>
+  
+  <Card title="Integrations" icon="plug" href="/reference/profiles/integrations">
+    Git, Docker, and other development tool integrations
+  </Card>
+</CardGroup>

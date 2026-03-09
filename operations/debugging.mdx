@@ -1,0 +1,195 @@
+---
+title: Debugging Sandbox Denials
+description: Learn how to diagnose and resolve sandbox denial events using macOS log tools
+---
+
+When the sandbox blocks an operation, macOS logs the denial event through the unified logging system. Use `/usr/bin/log` (not shell-shadowed `log`) to capture and analyze these events.
+
+## Live Denial Monitoring
+
+<Steps>
+  <Step title="Start denial stream">
+    Open a terminal and run the live denial filter:
+
+    ```bash
+    /usr/bin/log stream --style compact --predicate 'eventMessage CONTAINS "Sandbox:" AND eventMessage CONTAINS "deny("'
+    ```
+
+    This shows all sandbox denial events in real-time as they occur.
+  </Step>
+
+  <Step title="Run your sandboxed command">
+    In a separate terminal, execute the safehouse-wrapped command:
+
+    ```bash
+    safehouse -- npm install
+    ```
+  </Step>
+
+  <Step title="Analyze denial output">
+    Watch the log stream for denied operations. Each denial line follows this format:
+
+    ```
+    deny(<pid>) <operation> <path-or-name>
+    ```
+  </Step>
+</Steps>
+
+## Using the --explain Flag
+
+The `--explain` flag shows effective workdir, grants, and profile selection without running a command:
+
+```bash
+safehouse --explain --stdout
+```
+
+<Info>
+  Use `--explain` to verify which directories and integrations are active before running your command.
+</Info>
+
+## Log Stream Variants
+
+<CardGroup cols={2}>
+  <Card title="Filter by process pattern" icon="filter">
+    ```bash
+    /usr/bin/log stream --style compact \
+      --predicate 'eventMessage CONTAINS "Sandbox: 2.1.34(" AND eventMessage CONTAINS "deny("'
+    ```
+    
+    Narrow results to a specific agent or PID pattern.
+  </Card>
+
+  <Card title="Kernel-level denials" icon="microchip">
+    ```bash
+    /usr/bin/log stream --style compact --info --debug \
+      --predicate '(processID == 0) AND (senderImagePath CONTAINS "/Sandbox")'
+    ```
+    
+    Captures low-level sandbox events from the kernel.
+  </Card>
+
+  <Card title="Recent history" icon="clock-rotate-left">
+    ```bash
+    /usr/bin/log show --last 2m --style compact \
+      --predicate 'process == "sandboxd"'
+    ```
+    
+    Review sandboxd activity from the last 2 minutes.
+  </Card>
+
+  <Card title="Filter common noise" icon="broom">
+    ```bash
+    /usr/bin/log stream --style compact \
+      --predicate 'eventMessage CONTAINS "Sandbox:" AND eventMessage CONTAINS "deny(" AND NOT eventMessage CONTAINS "duplicate report" AND NOT eventMessage CONTAINS "/dev/dtracehelper" AND NOT eventMessage CONTAINS "apple.shm.notification_center" AND NOT eventMessage CONTAINS "com.apple.diagnosticd" AND NOT eventMessage CONTAINS "com.apple.analyticsd"'
+    ```
+    
+    Excludes common macOS system noise.
+  </Card>
+</CardGroup>
+
+## Suppressing DTrace Noise
+
+DTrace helper denials are usually harmless system noise. Suppress them with:
+
+```bash
+DYLD_USE_DTRACE=0 safehouse -- your-command
+```
+
+## Converting Denials to Allow Rules
+
+When you identify a legitimate denial, map it to the appropriate allow rule:
+
+| Denial Type | Example Denial | Allow Rule Pattern |
+|-------------|----------------|--------------------|
+| **File operations** | `deny(1234) file-read* /path/to/file` | `(allow file-read* (literal "/path/to/file"))` |
+| **Sysctl read** | `deny(1234) sysctl-read kern.hostname` | `(allow sysctl-read (sysctl-name "kern.hostname"))` |
+| **Mach lookup** | `deny(1234) mach-lookup com.apple.cfprefsd.daemon` | `(allow mach-lookup (global-name "com.apple.cfprefsd.daemon"))` |
+| **Network** | `deny(1234) network-outbound localhost:8080` | `(allow network-outbound (local ip "localhost:*"))` |
+
+<Warning>
+  Always use the **narrowest rule** that unblocks the workflow. Prefer `literal` over `subpath` for file paths when possible.
+</Warning>
+
+## Building a Profile from Scratch
+
+If you're authoring a new integration profile:
+
+<Steps>
+  <Step title="Start with base policy">
+    Create a minimal `.sb` file:
+
+    ```scheme
+    (version 1)
+    (deny default)
+    ```
+  </Step>
+
+  <Step title="Run with log stream active">
+    Start the denial monitor in one terminal, then run your sandboxed workflow in another.
+  </Step>
+
+  <Step title="Map each denial to a rule">
+    For each `deny(...)` event, add the minimum necessary allow rule to your profile.
+  </Step>
+
+  <Step title="Test full workflows">
+    Exercise complete toolchain workflows (`git`, `npm`, `cargo`, etc.) since child processes inherit the sandbox policy.
+  </Step>
+</Steps>
+
+## Correlating with Filesystem Activity
+
+For deeper filesystem behavior analysis, combine sandbox logs with `fs_usage`:
+
+```bash
+sudo fs_usage -w -f filesystem <pid> | grep -iE "open|create|write|rename"
+```
+
+Replace `<pid>` with the process ID from the denial log.
+
+## Common Issues
+
+<CardGroup cols={2}>
+  <Card title="Nested sandbox failure" icon="layer-group">
+    **Symptom**: `sandbox-exec cannot nest` error
+    
+    **Cause**: Already running inside a sandbox
+    
+    **Fix**: Run from an unsandboxed terminal session
+  </Card>
+
+  <Card title="Git operations blocked" icon="code-branch">
+    **Symptom**: `git` commands fail with permission errors
+    
+    **Cause**: Missing workdir grant or git integration not enabled
+    
+    **Fix**: Verify workdir with `--explain`, ensure git integration is active
+  </Card>
+
+  <Card title="Network requests denied" icon="network-wired">
+    **Symptom**: HTTP requests fail silently
+    
+    **Cause**: Network profile not included
+    
+    **Fix**: Network is enabled by default; check for custom `--append-profile` overrides
+  </Card>
+
+  <Card title="Toolchain not found" icon="wrench">
+    **Symptom**: `node`, `python`, `cargo` not executable
+    
+    **Cause**: Toolchain binary not in allowed paths
+    
+    **Fix**: Verify toolchain profile includes your installation path (see `profiles/30-toolchains/`)
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Testing" href="/operations/testing" icon="flask">
+    Validate policy behavior with the test suite
+  </Card>
+  <Card title="Contributing" href="/operations/contributing" icon="code-pull-request">
+    Submit new profiles or fixes to the project
+  </Card>
+</CardGroup>

@@ -1,0 +1,50 @@
+---
+title: "Auggie (Augment Code)"
+description: "Closed-source model-agnostic AI coding agent with extensive cloud integration"
+---
+
+## Overview
+
+Auggie (Augment Code CLI) is a closed-source AI agent with Node.js runtime, supporting interactive TUI, headless exec mode, and ACP (Agent Communication Protocol) daemon.
+
+<Info>
+**Binary path:** `~/.local/bin/auggie`  
+**Config:** `~/.augment/`  
+**License:** Proprietary (Augment Computing, Inc.)
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/auggie")
+    (home-subpath "/.augment")
+)
+```
+
+## Running in Safehouse
+
+```bash
+# Interactive mode with network
+safehouse --enable=network --add-dirs="$PWD" -- auggie
+
+# Non-interactive exec mode
+safehouse --enable=network --add-dirs="$PWD" -- auggie exec "query"
+```
+
+## Key Features
+
+- **Tool permission system** (allow/deny/ask-user)
+- **MCP integration** (as both client and server)
+- **Custom commands/skills** via markdown files
+- **Background agent execution**
+- **SSO support** (SAML 2.0 / OIDC)
+
+## Configuration Paths
+
+| Path | Purpose |
+|------|---------|
+| `~/.augment/session.json` | OAuth session token |
+| `~/.augment/settings.json` | User settings, MCP config |
+| `~/.augment/rules/` | User-specific rules |
+| `~/.augment/commands/` | Custom slash commands |

@@ -1,0 +1,356 @@
+---
+title: Contributing
+description: Development workflow, profile authoring guidelines, and pull request process
+---
+
+Agent Safehouse is built with Bash and Sandbox Profile Language (`.sb`) policy modules. Contributions should maintain least-privilege security boundaries while prioritizing agent productivity and developer experience.
+
+## Project Layout
+
+<CardGroup cols={2}>
+  <Card title="bin/ and bin/lib/" icon="terminal">
+    Runtime CLI and policy assembly logic (Bash)
+  </Card>
+  <Card title="profiles/" icon="shield">
+    Authored policy modules (`.sb`), organized by numeric stage
+  </Card>
+  <Card title="tests/" icon="flask">
+    Policy behavior tests and helpers
+  </Card>
+  <Card title="scripts/generate-dist.sh" icon="box">
+    Deterministic packaging pipeline
+  </Card>
+  <Card title="dist/" icon="package">
+    Generated distribution artifacts (**do not edit directly**)
+  </Card>
+  <Card title="docs/" icon="book">
+    VitePress documentation site and Cloudflare deploy tooling
+  </Card>
+</CardGroup>
+
+<Warning>
+  **Never hand-edit `dist/*` files.** Make functional changes in `bin/` and `profiles/`, then regenerate `dist/` with `./scripts/generate-dist.sh`.
+</Warning>
+
+## Development Setup
+
+To test your local changes (not an installed `safehouse` on PATH):
+
+<Steps>
+  <Step title="Add shell override">
+    Add this to your `~/.zshrc` or `~/.bashrc`:
+
+    ```bash ~/.zshrc
+    # Agent Safehouse local dev override
+    export AGENT_SAFEHOUSE_REPO="$HOME/dev/agent-safehouse"
+    safehouse() { "$AGENT_SAFEHOUSE_REPO/bin/safehouse.sh" "$@"; }
+    ```
+  </Step>
+
+  <Step title="Reload shell">
+    ```bash
+    source ~/.zshrc
+    ```
+  </Step>
+
+  <Step title="Verify override is active">
+    ```bash
+    type -a safehouse
+    ```
+
+    You should see your function listed **first**, before any installed binary.
+  </Step>
+</Steps>
+
+## Contribution Rules
+
+- Do not hand-edit `dist/*`
+- Make functional changes in `bin/` and `profiles/`, then regenerate `dist/` when required
+- Keep policy changes least-privilege; avoid broad grants unless needed
+- Preserve stage ordering semantics (later rules win)
+- Keep each `.sb` module standalone for its capability
+
+## Contribution Philosophy
+
+Agent Safehouse balances **security** and **developer experience**:
+
+- Follow least-privilege boundaries, but prioritize agent productivity
+- Prefer the **narrowest rule** that unblocks real workflows
+- If adding access to sensitive paths/integrations, **document why** it is needed and why narrower alternatives were insufficient
+- Avoid policy churn that improves theoretical security but breaks common agent/toolchain behavior without clear benefit
+
+## Authoring .sb Profiles
+
+### File Organization
+
+Profiles are organized by numeric stage prefix:
+
+| Stage | Purpose | Examples |
+|-------|---------|----------|
+| `00` | Base policy structure | `00-base.sb` |
+| `10` | System runtime fundamentals | `10-system-runtime.sb` |
+| `20` | Network access | `20-network.sb` |
+| `30` | Toolchains | `node.sb`, `python.sb`, `rust.sb` |
+| `40` | Shared utilities | `http-clients.sb` |
+| `50` | Core integrations (always on) | `git.sb`, `scm-clis.sb` |
+| `55` | Optional integrations | `docker.sb`, `ssh.sb`, `1password.sb` |
+| `60` | Agent profiles | `claude-cli.sb`, `cursor.sb` |
+| `65` | App profiles | `claude-desktop.sb` |
+
+<Info>
+  Later rules win. A deny rule in stage `60` overrides an allow rule from stage `10`.
+</Info>
+
+### Profile Header Template
+
+Every `.sb` file should start with:
+
+```scheme profiles/55-integrations-optional/docker.sb
+;; Category: Optional Integration
+;; Integration: Docker Desktop
+;; Description: Docker CLI, daemon socket, VM network access
+;; Source: profiles/55-integrations-optional/docker.sb
+
+#safehouse-test-id:docker#
+
+(allow mach-lookup
+  (global-name "com.docker.vmnetd")
+)
+```
+
+Components:
+
+- **Category**: Profile classification (Base, System Runtime, Toolchain, Integration, Agent, App)
+- **Integration/App**: Human-readable name
+- **Description**: Brief summary of what access is granted
+- **Source**: Relative path to this file
+- **Test ID marker** (optional): `#safehouse-test-id:*#` for ordering tests
+
+### Dependency Metadata
+
+Use `$$require=path/to/profile.sb$$` when implicit optional integration injection is needed:
+
+```scheme profiles/60-agents/cursor.sb
+;; Requires: electron (implicit via --enable=electron)
+$$require=profiles/55-integrations-optional/electron.sb$$
+```
+
+<Note>
+  `$$require=...$$` is **machine-read** by policy assembly. `;; Requires:` comments are documentation only.
+</Note>
+
+### Rule Snippets
+
+<CodeGroup>
+
+```scheme Single File (Narrowest)
+;; Exact single-path allow
+(allow file-read*
+  (literal "/Users/alice/.gitconfig")
+)
+```
+
+```scheme Recursive Directory
+;; Recursive directory allow (broader; use only when required)
+(allow file-read*
+  (subpath "/Users/alice/projects/reference-repo")
+)
+```
+
+```scheme Mach Service
+;; Mach service allow (common for macOS framework IPC)
+(allow mach-lookup
+  (global-name "com.apple.cfprefsd.daemon")
+)
+```
+
+```scheme Network
+;; Allow outbound network connections
+(allow network-outbound (remote ip))
+```
+
+</CodeGroup>
+
+<Warning>
+  Prefer `literal` over `subpath` whenever possible. Recursive directory grants expand the attack surface.
+</Warning>
+
+## Local Validation
+
+<Steps>
+  <Step title="Run policy tests">
+    Validate behavior (macOS only, must be outside an existing sandbox):
+
+    ```bash
+    ./tests/run.sh
+    ```
+  </Step>
+
+  <Step title="Regenerate dist artifacts">
+    Required after profile or runtime changes:
+
+    ```bash
+    ./scripts/generate-dist.sh
+    ```
+  </Step>
+
+  <Step title="Verify generated output">
+    Check that `dist/` artifacts updated correctly:
+
+    ```bash
+    git status
+    git diff dist/
+    ```
+  </Step>
+</Steps>
+
+<Info>
+  If tests cannot run because your session is already sandboxed, call that out in your PR and include static validation details instead.
+</Info>
+
+## Required Steps by Change Type
+
+| Change Type | Steps Required |
+|-------------|----------------|
+| **Profiles or runtime** (`profiles/*.sb`, `bin/safehouse.sh`, `bin/lib/*.sh`) | 1. Update/add tests<br/>2. Run `./scripts/generate-dist.sh`<br/>3. Include regenerated `dist/` files in PR |
+| **Tests only** (`tests/**`) | 1. Run `./tests/run.sh` |
+| **Docs only** (`docs/**`, `README.md`) | No dist regeneration needed |
+
+## Adding Tests
+
+When adding new policy behavior:
+
+<Steps>
+  <Step title="Add test section">
+    Create or update a file in `tests/sections/`:
+
+    ```bash tests/sections/20-integrations.sh
+    run_section_docker() {
+      section_begin "Docker Integration"
+      
+      assert_allowed_if_exists "$POLICY_DOCKER" \
+        "connect to Docker socket" \
+        "/var/run/docker.sock" \
+        docker ps
+      
+      assert_denied "$POLICY_DEFAULT" \
+        "Docker socket denied without --enable=docker" \
+        docker ps
+    }
+    
+    register_section run_section_docker
+    ```
+  </Step>
+
+  <Step title="Use existing helpers">
+    Leverage helpers from `tests/lib/common.sh`:
+
+    - `assert_allowed` / `assert_denied`
+    - `assert_policy_contains` / `assert_policy_not_contains`
+    - `assert_policy_order_literal`
+  </Step>
+
+  <Step title="Validate behavior">
+    ```bash
+    ./tests/run.sh
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  Prefer precise tests for ordering and policy-shape regressions when changing assembly logic or module dependencies.
+</Note>
+
+## Pull Request Checklist
+
+Before submitting:
+
+- [ ] Explain what changed and **why**
+- [ ] Describe security/least-privilege impact (especially for new allow rules)
+- [ ] Include test evidence (`./tests/run.sh` output) or state why tests were not runnable
+- [ ] Confirm whether `dist/` was regenerated and committed (when required)
+- [ ] Verify CI passes on your branch
+
+<CodeGroup>
+
+```markdown PR Template: New Integration
+## Summary
+
+Adds optional kubectl integration for Kubernetes CLI access.
+
+## Changes
+
+- `profiles/55-integrations-optional/kubectl.sb`: Allow kubectl binary execution, kubeconfig read, and API server network access
+- `tests/sections/20-integrations.sh`: Added kubectl canary tests
+- `dist/`: Regenerated all artifacts
+
+## Security Impact
+
+- Grants read access to `~/.kube/config` (contains cluster credentials)
+- Allows outbound network connections (required for cluster API calls)
+- **Opt-in only**: Requires `--enable=kubectl`
+
+## Testing
+
+```
+./tests/run.sh
+=== Kubectl Integration ===
+  PASS  read kubeconfig with --enable=kubectl
+  PASS  kubectl denied without --enable flag
+Total: 42  |  Pass: 42  |  Fail: 0  |  Skip: 0
+```
+```
+
+```markdown PR Template: Bug Fix
+## Summary
+
+Fixes denial of Python pip when installing packages with `--user` flag.
+
+## Changes
+
+- `profiles/30-toolchains/python.sb`: Added `file-write*` grant for `~/.local/lib/python*/site-packages`
+- `tests/sections/40-tooling.sh`: Added pip install test
+
+## Security Impact
+
+- Allows writes to user site-packages (standard Python behavior)
+- Does not expand access beyond existing user home directory grants
+
+## Testing
+
+```
+safehouse -- pip install --user requests
+# Previously denied, now succeeds
+```
+```
+
+</CodeGroup>
+
+## Design Guidance for Reviews
+
+When reviewing contributions:
+
+- Prefer narrow path matchers (`literal` > `subpath` when possible)
+- Avoid introducing new sensitive-path exposure unless justified
+- Keep optional integrations opt-in unless required by selected profiles
+- Treat policy assembly order as a first-class behavior constraint
+
+## Reference Material
+
+For Sandbox Profile Language examples:
+
+- **Primary source**: Authored modules under `profiles/` (style/source-of-truth for this project)
+- **Assembled examples**: `dist/profiles/safehouse.generated.sb` and `dist/profiles/safehouse-for-apps.generated.sb`
+- **macOS built-in profiles**: `/System/Library/Sandbox/Profiles/` and `/usr/share/sandbox/`
+- **External prior art**: Listed in `README.md` under Reference & Prior Art
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Testing" href="/operations/testing" icon="flask">
+    Run the test suite and validate behavior
+  </Card>
+  <Card title="Debugging" href="/operations/debugging" icon="bug">
+    Learn how to diagnose sandbox denials
+  </Card>
+</CardGroup>

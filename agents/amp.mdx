@@ -1,0 +1,45 @@
+---
+title: "Amp"
+description: "Clipboard-aware coding agent with Bun runtime"
+---
+
+## Overview
+
+Amp is a clipboard-aware AI coding agent that integrates with the system clipboard for seamless code exchange.
+
+<Info>
+**Binary path:** `~/.local/bin/amp`, `~/.amp/bin/amp`  
+**Config:** `~/.amp/`, `~/.config/amp/`  
+**Dependencies:** `$$require=55-integrations-optional/clipboard.sb$$`
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-literal "/.amp/bin/amp")
+    (home-literal "/.local/bin/amp")
+    (home-subpath "/.amp")
+    (home-subpath "/.config/amp")
+    (home-subpath "/.cache/amp")
+    (home-subpath "/.local/share/amp")
+    (home-subpath "/.local/state/amp")
+)
+
+(allow file-read*
+    (home-subpath "/.claude")
+)
+```
+
+## Running in Safehouse
+
+```bash
+# With clipboard and network
+safehouse --enable=clipboard,network --add-dirs="$PWD" -- amp
+```
+
+## Integration Notes
+
+- Requires clipboard integration for paste functionality
+- Probes Claude config/auth files on startup
+- Stores encrypted credentials in `~/.local/share/amp/secrets.json` (not macOS Keychain)

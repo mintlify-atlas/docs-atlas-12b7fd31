@@ -1,0 +1,368 @@
+---
+title: "Workdir Config Files"
+description: "Use .safehouse config files for per-project sandbox configuration"
+icon: "folder-gear"
+---
+
+The `.safehouse` config file allows you to define project-specific path grants that are loaded when Safehouse runs in that directory.
+
+## Trust Model
+
+By default, `.safehouse` config files are **ignored** for security reasons. You must explicitly opt-in to loading them.
+
+<Warning>
+  Only enable config loading for projects you trust. The `.safehouse` file can grant additional filesystem access, potentially including sensitive paths outside the project directory.
+</Warning>
+
+### Why Disabled by Default?
+
+Imagine you clone a repository you've never seen before and run an agent in it. If Safehouse automatically loaded `.safehouse` from that repo, a malicious config file could:
+
+- Grant read access to `~/.ssh`, `~/.aws`, or other credential directories
+- Grant write access to system locations
+- Bypass the security boundaries Safehouse is designed to enforce
+
+By requiring explicit trust, you control when project configs are loaded.
+
+## Enabling Config Loading
+
+There are three ways to trust and load `.safehouse` config files:
+
+<Tabs>
+  <Tab title="CLI Flag (Per-Invocation)">
+    Trust the config file for a single command:
+    
+    ```bash
+    safehouse --trust-workdir-config -- npm test
+    ```
+    
+    Use `=true` or `=false` for explicit control:
+    
+    ```bash
+    safehouse --trust-workdir-config=true -- claude
+    safehouse --trust-workdir-config=false -- aider  # Explicit disable
+    ```
+  </Tab>
+  
+  <Tab title="Environment Variable (Session/Machine)">
+    Set an environment variable to trust configs in all invocations:
+    
+    ```bash
+    export SAFEHOUSE_TRUST_WORKDIR_CONFIG=1
+    safehouse -- npm test  # Loads .safehouse if present
+    ```
+    
+    Add this to `~/.zshrc` or `~/.bashrc` to make it permanent:
+    
+    ```bash ~/.zshrc
+    # Trust .safehouse in my personal workspace
+    export SAFEHOUSE_TRUST_WORKDIR_CONFIG=1
+    ```
+    
+    **Accepted values:** `1`, `0`, `true`, `false`, `yes`, `no`, `on`, `off`
+  </Tab>
+  
+  <Tab title="Shell Function (Scoped)">
+    Create a wrapper function that trusts configs:
+    
+    ```bash ~/.zshrc
+    # Wrapper for trusted projects
+    safe-trusted() {
+      safehouse --trust-workdir-config "$@"
+    }
+    
+    # Use it
+    safe-trusted -- npm test
+    ```
+    
+    This gives you explicit control: use `safe-trusted` for your own projects and `safehouse` for untrusted code.
+  </Tab>
+</Tabs>
+
+## Config File Format
+
+The `.safehouse` file uses a simple `key=value` format:
+
+```ini .safehouse
+# Lines starting with # or ; are comments
+
+# Grant read-only access (colon-separated paths)
+add-dirs-ro=/path/to/readonly/dir:/path/to/another/readonly
+
+# Grant read/write access (colon-separated paths)
+add-dirs=/path/to/readwrite/dir:/path/to/output
+```
+
+### Supported Keys
+
+<ParamField path="add-dirs-ro" type="string">
+  Colon-separated paths to grant read-only access.
+  
+  **Alternate names:** `add_dirs_ro`, `SAFEHOUSE_ADD_DIRS_RO`
+  
+  **Example:**
+  ```ini
+  add-dirs-ro=/usr/local/shared-libs:$HOME/team-resources
+  ```
+</ParamField>
+
+<ParamField path="add-dirs" type="string">
+  Colon-separated paths to grant read/write access.
+  
+  **Alternate names:** `add_dirs`, `SAFEHOUSE_ADD_DIRS`
+  
+  **Example:**
+  ```ini
+  add-dirs=/tmp/build-cache:$HOME/project-output
+  ```
+</ParamField>
+
+<Info>
+  Unknown keys are silently ignored for forward compatibility. This allows newer versions of Safehouse to add config options without breaking older versions.
+</Info>
+
+### Value Syntax
+
+- **Paths:** Can be absolute or use `$HOME` / `~` for home directory
+- **Quotes:** Optional. Single (`'`) or double (`"`) quotes are stripped
+- **Multiple values:** Separate with colons (`:`), like `PATH` environment variables
+- **Whitespace:** Leading and trailing whitespace is trimmed
+- **Comments:** Lines starting with `#` or `;` are ignored
+- **Empty lines:** Ignored
+
+## Complete Example
+
+Here's a realistic `.safehouse` config for a web development project:
+
+```ini .safehouse
+# Project: MyWebApp
+# This config grants access to shared test fixtures and build outputs
+
+# Read-only: shared test data and reference files
+add-dirs-ro=$HOME/test-fixtures:$HOME/api-mocks
+
+# Read/write: build outputs and temp directories
+add-dirs=/tmp/myapp-build:$HOME/myapp-dist
+
+# Read/write: local database files for development
+add-dirs=$HOME/.local/share/myapp/db
+```
+
+**Usage:**
+
+```bash
+cd ~/projects/mywebapp
+safehouse --trust-workdir-config -- npm run build
+```
+
+The command now has:
+- Read/write access to `~/projects/mywebapp` (workdir, automatic)
+- Read-only access to `~/test-fixtures` and `~/api-mocks` (from config)
+- Read/write access to `/tmp/myapp-build`, `~/myapp-dist`, and `~/.local/share/myapp/db` (from config)
+
+## Precedence and Merging
+
+When path grants come from multiple sources, they are **merged** (not overridden):
+
+1. **Config file** (`.safehouse` if trusted)
+2. **Environment variables** (`SAFEHOUSE_ADD_DIRS_RO`, `SAFEHOUSE_ADD_DIRS`)
+3. **CLI flags** (`--add-dirs-ro`, `--add-dirs`)
+4. **Workdir grant** (automatic for current directory unless `--workdir=""`)
+
+All sources contribute to the final set of path grants.
+
+**Example:**
+
+```bash
+# .safehouse contains:
+# add-dirs-ro=$HOME/shared
+
+export SAFEHOUSE_ADD_DIRS_RO="$HOME/docs"
+safehouse --trust-workdir-config --add-dirs-ro="$HOME/extra" -- command
+
+# Final read-only grants:
+# - $HOME/shared (from .safehouse)
+# - $HOME/docs (from environment)
+# - $HOME/extra (from CLI flag)
+```
+
+## Debugging Config Loading
+
+Use `--explain` to see whether the config file was loaded:
+
+```bash
+cd ~/my-project
+safehouse --explain --trust-workdir-config --stdout 2>&1 | grep -i config
+```
+
+**Possible outputs:**
+
+```
+workdir config: loaded from /Users/dev/my-project/.safehouse
+```
+
+```
+workdir config: ignored (untrusted): /Users/dev/my-project/.safehouse
+```
+
+```
+workdir config: not found at /Users/dev/my-project/.safehouse
+```
+
+## Security Best Practices
+
+<Steps>
+
+<Step title="Review config files in unfamiliar repos">
+  Before enabling `--trust-workdir-config`, inspect the `.safehouse` file:
+  
+  ```bash
+  cat .safehouse
+  ```
+  
+  Look for suspicious paths like `~/.ssh`, `~/.aws`, or system directories.
+</Step>
+
+<Step title="Use narrow grants">
+  Grant access only to what the project actually needs:
+  
+  <CodeGroup>
+  
+  ```ini Good: Specific paths
+  add-dirs-ro=$HOME/project-libs
+  add-dirs=/tmp/project-build
+  ```
+  
+  ```ini Avoid: Broad access
+  add-dirs-ro=$HOME
+  add-dirs=/tmp
+  ```
+  
+  </CodeGroup>
+</Step>
+
+<Step title="Commit .safehouse to version control">
+  Share the config with your team:
+  
+  ```bash
+  git add .safehouse
+  git commit -m "Add Safehouse config for build outputs"
+  ```
+  
+  This documents the project's filesystem requirements and makes them auditable.
+</Step>
+
+<Step title="Use machine-local overrides for sensitive paths">
+  Keep machine-specific or sensitive grants in shell functions with `--append-profile` instead of `.safehouse`:
+  
+  ```bash ~/.zshrc
+  safe() {
+    safehouse \
+      --append-profile="$HOME/.config/safehouse/local.sb" \
+      "$@"
+  }
+  ```
+  
+  See [Shell Functions](/usage/shell-functions) for more patterns.
+</Step>
+
+</Steps>
+
+## Common Patterns
+
+### Build Output Directories
+
+```ini .safehouse
+# Grant write access to build outputs
+add-dirs=./dist:./build:./.next
+```
+
+### Shared Test Fixtures
+
+```ini .safehouse
+# Read-only access to shared test data
+add-dirs-ro=$HOME/test-data:$HOME/fixtures
+```
+
+### Monorepo Shared Packages
+
+```ini .safehouse
+# Read-only access to shared packages in monorepo
+add-dirs-ro=../packages:../shared
+```
+
+### Database Files
+
+```ini .safehouse
+# Read/write access to local development database
+add-dirs=$HOME/.local/share/myapp/db
+```
+
+## Disabling Workdir Config Explicitly
+
+If an environment variable or shell function sets `SAFEHOUSE_TRUST_WORKDIR_CONFIG=1`, you can disable it for a specific invocation:
+
+```bash
+safehouse --trust-workdir-config=false -- command
+```
+
+This overrides the environment variable for that single execution.
+
+## Advanced: Relative Paths
+
+Paths in `.safehouse` are resolved relative to the **workdir** (not the location of the config file itself):
+
+```ini .safehouse
+# These are relative to the workdir
+add-dirs-ro=./shared:./libs
+add-dirs=./build
+```
+
+If you run:
+
+```bash
+cd ~/my-project
+safehouse --trust-workdir-config -- npm test
+```
+
+The resolved paths are:
+- Read-only: `~/my-project/shared`, `~/my-project/libs`
+- Read/write: `~/my-project/build`
+
+<Tip>
+  Use relative paths (`./subdir`) for project-internal directories and absolute paths (`$HOME/shared`) for external resources.
+</Tip>
+
+## Troubleshooting
+
+### Config file is ignored
+
+**Problem:** Your `.safehouse` file exists but grants aren't applied.
+
+**Solution:** Enable config loading with `--trust-workdir-config`:
+
+```bash
+safehouse --trust-workdir-config -- command
+```
+
+### Invalid config line error
+
+**Problem:** Error message: `Invalid config line in .safehouse:5: expected key=value`
+
+**Solution:** Check line 5 of your config file. Ensure every non-comment, non-empty line has the format `key=value`.
+
+### Paths not expanded
+
+**Problem:** Grants show literal `$HOME` instead of `/Users/username`.
+
+**Solution:** This is normal. Safehouse expands `$HOME` and `~` internally. Use `--explain` to see resolved paths:
+
+```bash
+safehouse --trust-workdir-config --explain --stdout 2>&1 | grep -i grants
+```
+
+## Related Resources
+
+- **[Basic Usage](/usage/basic-usage)** - Common workflows with and without config files
+- **[CLI Options](/usage/cli-options)** - Full `--trust-workdir-config` documentation
+- **[Shell Functions](/usage/shell-functions)** - Machine-local overrides using wrapper functions

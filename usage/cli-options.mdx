@@ -1,0 +1,421 @@
+---
+title: "CLI Options Reference"
+description: "Complete reference for all Safehouse command-line flags and options"
+icon: "flag"
+---
+
+This page documents every CLI option supported by Agent Safehouse.
+
+## Usage Syntax
+
+```bash
+safehouse [policy options]
+safehouse [policy options] [--] <command> [args...]
+```
+
+## Policy Scope Options
+
+These options control what permissions are granted inside the sandbox.
+
+### --enable
+
+<ParamField path="--enable" type="string">
+  Enable optional integration features (comma-separated).
+  
+  **Syntax:** `--enable FEATURES` or `--enable=FEATURES`
+  
+  **Supported values:**
+  - `docker` - Docker socket and CLI access
+  - `kubectl` - Kubernetes client access
+  - `macos-gui` - macOS GUI automation (AXUIElement)
+  - `electron` - Electron app requirements (implies `macos-gui`)
+  - `chromium-headless` - Headless browser support
+  - `chromium-full` - Full Chromium/Chrome (implies `chromium-headless`)
+  - `ssh` - SSH client access
+  - `spotlight` - macOS Spotlight search
+  - `cleanshot` - CleanShot media access
+  - `clipboard` - System clipboard access
+  - `1password` - 1Password CLI integration
+  - `cloud-credentials` - Cloud provider credential access (AWS, GCP, Azure)
+  - `agent-browser` - Browser automation for agents (implies `chromium-headless`)
+  - `browser-native-messaging` - Browser native messaging protocol
+  - `shell-init` - Read shell startup files (.zshrc, .bashrc, etc.)
+  - `process-control` - Host process enumeration and signaling
+  - `lldb` - LLDB debugger with task-port access (implies `process-control`)
+  - `all-agents` - Load all agent profiles from `60-agents/`
+  - `all-apps` - Load all app profiles from `65-apps/`
+  - `wide-read` - Grant broad read-only access across `/` (use cautiously)
+  
+  **Examples:**
+  ```bash
+  safehouse --enable=docker -- docker ps
+  safehouse --enable=clipboard,macos-gui -- cursor
+  safehouse --enable=all-agents -- claude
+  ```
+</ParamField>
+
+<Warning>
+  **Security note:** Features like `wide-read`, `process-control`, and `lldb` grant significant system access. Only enable them when necessary.
+</Warning>
+
+### --add-dirs-ro
+
+<ParamField path="--add-dirs-ro" type="string">
+  Grant read-only access to additional file paths (colon-separated).
+  
+  **Syntax:** `--add-dirs-ro PATHS` or `--add-dirs-ro=PATHS`
+  
+  **Default:** None
+  
+  Paths can be files or directories. For directories, access is granted recursively. Multiple paths are separated by colons (`:`).
+  
+  **Examples:**
+  ```bash
+  safehouse --add-dirs-ro="$HOME/docs" -- claude
+  safehouse --add-dirs-ro="$HOME/project:$HOME/libs" -- npm test
+  ```
+  
+  **Environment equivalent:** `SAFEHOUSE_ADD_DIRS_RO`
+</ParamField>
+
+### --add-dirs
+
+<ParamField path="--add-dirs" type="string">
+  Grant read/write access to additional file paths (colon-separated).
+  
+  **Syntax:** `--add-dirs PATHS` or `--add-dirs=PATHS`
+  
+  **Default:** None
+  
+  Paths can be files or directories. For directories, access is granted recursively. Multiple paths are separated by colons (`:`).
+  
+  **Examples:**
+  ```bash
+  safehouse --add-dirs="$HOME/output" -- node build.js
+  safehouse --add-dirs="/tmp/cache:$HOME/logs" -- npm test
+  ```
+  
+  **Environment equivalent:** `SAFEHOUSE_ADD_DIRS`
+</ParamField>
+
+### --workdir
+
+<ParamField path="--workdir" type="string">
+  Set the main working directory with read/write access.
+  
+  **Syntax:** `--workdir DIR` or `--workdir=DIR`
+  
+  **Default:** Current working directory (`pwd`)
+  
+  The workdir receives automatic read/write grants and is where the `.safehouse` config file is searched for (if trusted).
+  
+  **Special value:** Empty string (`--workdir=""`) disables automatic workdir grants entirely.
+  
+  **Examples:**
+  ```bash
+  safehouse --workdir=/path/to/project -- aider
+  safehouse --workdir="" -- claude  # No automatic workdir access
+  ```
+  
+  **Environment equivalent:** `SAFEHOUSE_WORKDIR`
+</ParamField>
+
+### --trust-workdir-config
+
+<ParamField path="--trust-workdir-config" type="boolean">
+  Trust and load the `.safehouse` config file from the workdir.
+  
+  **Syntax:** `--trust-workdir-config` or `--trust-workdir-config=BOOL`
+  
+  **Default:** `false` (disabled)
+  
+  **Accepted values:** `1`, `0`, `true`, `false`, `yes`, `no`, `on`, `off`
+  
+  When enabled, Safehouse reads `<workdir>/.safehouse` and loads additional path grants specified in that file.
+  
+  **Examples:**
+  ```bash
+  safehouse --trust-workdir-config -- npm test
+  safehouse --trust-workdir-config=true -- claude
+  ```
+  
+  **Environment equivalent:** `SAFEHOUSE_TRUST_WORKDIR_CONFIG`
+</ParamField>
+
+<Warning>
+  Only enable `--trust-workdir-config` for projects you trust. The config file can grant additional filesystem access, including paths outside the project directory.
+</Warning>
+
+### --append-profile
+
+<ParamField path="--append-profile" type="string">
+  Append an additional sandbox profile file after generated rules.
+  
+  **Syntax:** `--append-profile PATH` or `--append-profile=PATH`
+  
+  **Default:** None
+  
+  This option is **repeatable**. Files are appended in the order specified. Profiles appended here have final say and can override earlier rules.
+  
+  Paths starting with `~` are expanded to your home directory.
+  
+  **Examples:**
+  ```bash
+  safehouse --append-profile="$HOME/.config/safehouse/local.sb" -- claude
+  safehouse --append-profile=~/overrides.sb --append-profile=~/deny.sb -- aider
+  ```
+  
+  <Tip>
+    Use `--append-profile` for machine-specific overrides or final deny rules. See [Shell Functions](/usage/shell-functions) for a complete pattern.
+  </Tip>
+</ParamField>
+
+## Environment Options
+
+These options control which environment variables are passed to the sandboxed command.
+
+### --env
+
+<ParamField path="--env" type="flag">
+  Execute the wrapped command with full inherited environment variables.
+  
+  **Syntax:** `--env` (flag only, no value)
+  
+  **Default:** Sanitized environment with safe defaults
+  
+  When specified, **all** environment variables from the host are passed through to the sandboxed command. This includes secrets, tokens, and credentials.
+  
+  **Incompatible with:** `--env=FILE`, `--env-pass`
+  
+  **Example:**
+  ```bash
+  safehouse --env -- npm run build
+  ```
+</ParamField>
+
+<Warning>
+  `--env` grants access to **all environment variables**, including sensitive data like `AWS_SECRET_ACCESS_KEY`, API tokens, and session credentials. Use only when necessary.
+</Warning>
+
+### --env=FILE
+
+<ParamField path="--env" type="string">
+  Load environment variables from a file on top of sanitized defaults.
+  
+  **Syntax:** `--env=FILE`
+  
+  **Default:** Sanitized environment only
+  
+  The file is sourced by `/bin/bash` (not parsed as dotenv). Use shell syntax with `export` statements. File variables override sanitized defaults.
+  
+  Paths starting with `~` are expanded to your home directory.
+  
+  **Incompatible with:** `--env` (full pass-through)
+  
+  **Compatible with:** `--env-pass`
+  
+  **Example:**
+  ```bash
+  safehouse --env=~/dev-secrets.env -- npm test
+  ```
+  
+  **File format:**
+  ```bash
+  export DATABASE_URL="postgresql://localhost/testdb"
+  export API_KEY="test-key-123"
+  ```
+</ParamField>
+
+### --env-pass
+
+<ParamField path="--env-pass" type="string">
+  Pass specific environment variables from the host (comma-separated).
+  
+  **Syntax:** `--env-pass NAMES` or `--env-pass=NAMES`
+  
+  **Default:** None (only sanitized defaults)
+  
+  This option is **repeatable**. Variable names are deduplicated. Specified variables are added on top of sanitized defaults.
+  
+  **Incompatible with:** `--env` (full pass-through)
+  
+  **Compatible with:** `--env=FILE` (default mode)
+  
+  **Examples:**
+  ```bash
+  safehouse --env-pass=API_KEY -- node script.js
+  safehouse --env-pass=API_KEY --env-pass=DATABASE_URL -- npm test
+  safehouse --env-pass=AWS_PROFILE,AWS_REGION -- aws s3 ls
+  ```
+  
+  **Environment equivalent:** `SAFEHOUSE_ENV_PASS`
+</ParamField>
+
+## Output Options
+
+These options control how Safehouse outputs the policy.
+
+### --output
+
+<ParamField path="--output" type="string">
+  Write the policy to a specific file path.
+  
+  **Syntax:** `--output PATH` or `--output=PATH`
+  
+  **Default:** Temporary file (auto-deleted after execution)
+  
+  When specified, the policy file is preserved after the command executes instead of being automatically deleted.
+  
+  **Examples:**
+  ```bash
+  safehouse --output=/tmp/my-policy.sb
+  safehouse --output=./policy.sb -- npm test
+  ```
+</ParamField>
+
+### --stdout
+
+<ParamField path="--stdout" type="flag">
+  Print policy text to stdout instead of executing a command.
+  
+  **Syntax:** `--stdout` (flag only)
+  
+  **Default:** Execute mode or print file path
+  
+  When `--stdout` is specified:
+  - The policy is generated and printed to stdout
+  - If a command is provided, it is **not executed**
+  - The policy file is deleted unless `--output` is also specified
+  
+  **Examples:**
+  ```bash
+  safehouse --stdout
+  safehouse --enable=docker --stdout | less
+  ```
+</ParamField>
+
+### --explain
+
+<ParamField path="--explain" type="flag">
+  Print detailed policy generation summary to stderr.
+  
+  **Syntax:** `--explain` (flag only)
+  
+  **Default:** Silent (no explanation output)
+  
+  Shows effective workdir, all path grants, loaded profiles, optional integrations, and config file status. Useful for debugging permission issues.
+  
+  **Examples:**
+  ```bash
+  safehouse --explain --stdout
+  safehouse --explain -- npm test
+  ```
+  
+  **Sample output:**
+  ```
+  Effective workdir: /Users/dev/project (source: cwd)
+  Read-only grants: /Users/dev/shared, /Users/dev/docs
+  Read/write grants: /Users/dev/project
+  Loaded agent profiles: claude.sb (matched command: claude)
+  Optional integrations: docker, clipboard
+  workdir config: loaded from /Users/dev/project/.safehouse
+  ```
+</ParamField>
+
+## General Options
+
+### -h, --help
+
+<ParamField path="--help" type="flag">
+  Show usage information and exit.
+  
+  **Syntax:** `-h` or `--help`
+  
+  **Example:**
+  ```bash
+  safehouse --help
+  ```
+</ParamField>
+
+## Environment Variables
+
+These environment variables provide an alternative way to set options:
+
+<ParamField path="SAFEHOUSE_ADD_DIRS_RO" type="string">
+  Colon-separated read-only paths (same format as `--add-dirs-ro`).
+  
+  **Example:**
+  ```bash
+  export SAFEHOUSE_ADD_DIRS_RO="$HOME/shared:$HOME/docs"
+  safehouse -- claude
+  ```
+</ParamField>
+
+<ParamField path="SAFEHOUSE_ADD_DIRS" type="string">
+  Colon-separated read/write paths (same format as `--add-dirs`).
+  
+  **Example:**
+  ```bash
+  export SAFEHOUSE_ADD_DIRS="$HOME/output"
+  safehouse -- npm run build
+  ```
+</ParamField>
+
+<ParamField path="SAFEHOUSE_WORKDIR" type="string">
+  Override the working directory (same as `--workdir`).
+  
+  **Example:**
+  ```bash
+  export SAFEHOUSE_WORKDIR=/path/to/project
+  safehouse -- aider
+  ```
+</ParamField>
+
+<ParamField path="SAFEHOUSE_TRUST_WORKDIR_CONFIG" type="string">
+  Trust and load `.safehouse` config file (same as `--trust-workdir-config`).
+  
+  **Accepted values:** `1`, `0`, `true`, `false`, `yes`, `no`, `on`, `off`
+  
+  **Example:**
+  ```bash
+  export SAFEHOUSE_TRUST_WORKDIR_CONFIG=1
+  safehouse -- npm test
+  ```
+</ParamField>
+
+<ParamField path="SAFEHOUSE_ENV_PASS" type="string">
+  Comma-separated env var names to pass through (same format as `--env-pass`).
+  
+  **Example:**
+  ```bash
+  export SAFEHOUSE_ENV_PASS="API_KEY,DATABASE_URL"
+  safehouse -- npm test
+  ```
+</ParamField>
+
+## Option Precedence
+
+When the same setting is specified in multiple ways, the precedence order is:
+
+1. **CLI flags** (highest priority)
+2. **Environment variables**
+3. **Config file** (`.safehouse` if trusted)
+4. **Defaults** (lowest priority)
+
+**Example:**
+```bash
+export SAFEHOUSE_WORKDIR=/default/path
+safehouse --workdir=/override/path -- command
+# Uses: /override/path (CLI flag wins)
+```
+
+## Path Resolution
+
+All path options support tilde expansion:
+
+```bash
+safehouse --add-dirs-ro="~/docs" -- claude
+# Expands to: /Users/username/docs
+```
+
+Paths are normalized to absolute paths before being included in the policy.

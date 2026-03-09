@@ -1,0 +1,101 @@
+---
+title: "Pi"
+description: "Minimal TypeScript coding agent with custom TUI"
+---
+
+## Overview
+
+Pi is a minimal TypeScript/Node.js coding agent with custom TUI (not Ink/React), supporting interactive, print, and RPC modes.
+
+<Info>
+**Binary path:** `~/.local/bin/pi` (via npm global)  
+**Config:** `~/.pi/agent/`  
+**License:** MIT (open source)
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/pi")
+    (home-subpath "/.pi")
+)
+
+(allow file-read-metadata
+   (home-subpath "/Library")
+)
+```
+
+## Running in Safehouse
+
+```bash
+# Interactive mode
+safehouse --enable=network --add-dirs="$PWD" -- pi
+
+# Print mode (non-interactive)
+safehouse --enable=network --add-dirs="$PWD" -- pi -p "write a function"
+
+# RPC mode (headless JSON protocol)
+safehouse --enable=network --add-dirs="$PWD" -- pi --rpc
+```
+
+## Custom TUI
+
+Pi uses its own terminal UI library (`@mariozechner/pi-tui`):
+- Differential rendering (ANSI escape codes to stdout)
+- Kitty keyboard protocol support
+- Terminal image support (Kitty, iTerm2)
+- OSC 8 hyperlink support
+
+## Credentials
+
+**No keyring integration.** Credentials stored in:
+- `~/.pi/agent/auth.json` (mode 0o600, plain JSON)
+- API keys and OAuth tokens in one file
+- File locking via `proper-lockfile`
+
+## OAuth Flows
+
+| Provider | Port | Endpoints |
+|----------|------|-----------|
+| Anthropic | None (manual paste) | `claude.ai/oauth/authorize` |
+| GitHub Copilot | None (device code) | `github.com/login/device/code` |
+| Google Antigravity | `127.0.0.1:51121` | `accounts.google.com/o/oauth2/v2/auth` |
+| Google Gemini CLI | `127.0.0.1:8085` | `accounts.google.com/o/oauth2/v2/auth` |
+| OpenAI Codex | `127.0.0.1:1455` | `auth.openai.com/oauth/authorize` |
+
+## Extension System
+
+Extensions can:
+- Register custom tools (including replacing bash tool)
+- Register custom commands
+- Hook into session events
+- Spawn subprocesses, access filesystem, make network requests
+
+Loaded via `jiti` (TypeScript-in-Node.js runtime).
+
+## Optional Sandbox Extension
+
+Pi includes an **optional sandbox extension** using `@anthropic-ai/sandbox-runtime`:
+- Uses `sandbox-exec` on macOS, `bubblewrap` on Linux
+- Opt-in via `pi -e ./sandbox`
+- NOT enabled by default
+
+## Tool Binaries
+
+Pi auto-downloads `fd` and `rg` (ripgrep) if not on PATH:
+- Downloads from GitHub releases
+- Installs to `~/.pi/agent/bin/`
+- Adds to `PATH` for agent use
+
+## Configuration Paths
+
+| Path | Purpose |
+|------|---------|
+| `~/.pi/agent/auth.json` | Credentials (mode 0o600) |
+| `~/.pi/agent/settings.json` | User settings |
+| `~/.pi/agent/models.json` | Custom model definitions |
+| `~/.pi/agent/sessions/` | Session history (JSONL) |
+| `~/.pi/agent/bin/` | Auto-downloaded tools (fd, rg) |
+| `~/.pi/agent/extensions/` | Global extensions |
+| `<cwd>/.pi/` | Project-local config |

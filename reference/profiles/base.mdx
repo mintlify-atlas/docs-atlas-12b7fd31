@@ -1,0 +1,184 @@
+---
+title: "Base Profile"
+description: "Core definitions, HOME_DIR macro, and helper functions shared by all profiles"
+---
+
+The Base Profile (`00-base.sb`) provides the foundational layer for all Agent Safehouse policies. It defines the `HOME_DIR` replacement token, helper macros for path operations, and establishes the default-deny security posture.
+
+## Security Model
+
+The Base Profile implements a **zero-trust security model** with explicit denies:
+
+```scheme
+(deny default)
+```
+
+This single line ensures that all operations are blocked by default. Every permission must be explicitly granted through subsequent profile layers.
+
+<Warning>
+  The `(deny default)` rule is critical for security. Without it, the sandbox would operate in permissive mode, defeating the purpose of Agent Safehouse.
+</Warning>
+
+## HOME_DIR Replacement Token
+
+Agent Safehouse uses a placeholder token that gets replaced at policy assembly time with the actual user's home directory:
+
+```scheme
+;; HOME_DIR starts as an explicit replacement placeholder.
+;; Safehouse policy assembly (bin/safehouse.sh via bin/lib/policy.sh)
+;; replaces this token with the resolved HOME path.
+;;
+;; Manual policy-only example (no generator):
+;;   Replace the next line with:
+;;     (define HOME_DIR "/Users/alice")
+(define HOME_DIR "__SAFEHOUSE_REPLACE_ME_WITH_ABSOLUTE_HOME_DIR__")
+```
+
+### How It Works
+
+1. **Assembly Time**: When `bin/safehouse.sh` generates a policy, it reads `00-base.sb`
+2. **Token Replacement**: The `__SAFEHOUSE_REPLACE_ME_WITH_ABSOLUTE_HOME_DIR__` placeholder is replaced with the actual home path (e.g., `/Users/alice`)
+3. **Policy Generation**: The resulting policy contains `(define HOME_DIR "/Users/alice")` ready for use
+
+<Info>
+  This approach allows policies to be user-agnostic until assembly time, making them portable across different systems and users.
+</Info>
+
+## Helper Macros
+
+The Base Profile defines three helper macros that other profiles use extensively for path-based permissions:
+
+### `home-subpath`
+
+Creates a **recursive path matcher** starting from a home-relative path:
+
+```scheme
+(define (home-subpath rel) (subpath (string-append HOME_DIR rel)))
+```
+
+**Usage Example:**
+```scheme
+(allow file-read* (home-subpath "/.config/git"))
+;; Grants recursive read access to ~/.config/git and all subdirectories
+```
+
+### `home-literal`
+
+Creates an **exact path matcher** for a home-relative path:
+
+```scheme
+(define (home-literal rel) (literal (string-append HOME_DIR rel)))
+```
+
+**Usage Example:**
+```scheme
+(allow file-read* (home-literal "/.gitconfig"))
+;; Grants read access to ~/.gitconfig only (not ~/.gitconfig.local)
+```
+
+### `home-prefix`
+
+Creates a **prefix matcher** that matches paths starting with the given home-relative path:
+
+```scheme
+(define (home-prefix rel) (prefix (string-append HOME_DIR rel)))
+```
+
+**Usage Example:**
+```scheme
+(allow file-read* (home-prefix "/.gitconfig"))
+;; Matches ~/.gitconfig, ~/.gitconfig.local, ~/.gitconfig.backup, etc.
+```
+
+## Path Matcher Comparison
+
+<CardGroup cols={3}>
+  <Card title="literal" icon="equals">
+    Exact path match only
+    
+    **Example:** `~/.npmrc`
+    
+    **Matches:** `~/.npmrc`
+    
+    **Doesn't match:** `~/.npmrc.backup`
+  </Card>
+  
+  <Card title="prefix" icon="arrow-right">
+    Matches paths starting with prefix
+    
+    **Example:** `~/.gitconfig`
+    
+    **Matches:** `~/.gitconfig`, `~/.gitconfig.local`
+    
+    **Doesn't match:** `~/.git`
+  </Card>
+  
+  <Card title="subpath" icon="folder-tree">
+    Recursive directory match
+    
+    **Example:** `~/.config/git`
+    
+    **Matches:** All files under `~/.config/git/`
+    
+    **Doesn't match:** `~/.config/github`
+  </Card>
+</CardGroup>
+
+## Complete Source
+
+<CodeGroup>
+```scheme 00-base.sb
+(version 1)
+
+;; ---------------------------------------------------------------------------
+;; Base Profile
+;; Core definitions, HOME_DIR replacement token, and helper macros shared by all modules.
+;; Source: 00-base.sb
+;; ---------------------------------------------------------------------------
+
+;; HOME_DIR starts as an explicit replacement placeholder.
+;; Safehouse policy assembly (bin/safehouse.sh via bin/lib/policy.sh)
+;; replaces this token with the resolved HOME path.
+;;
+;; Manual policy-only example (no generator):
+;;   Replace the next line with:
+;;     (define HOME_DIR "/Users/alice")
+(define HOME_DIR "__SAFEHOUSE_REPLACE_ME_WITH_ABSOLUTE_HOME_DIR__")
+
+(define (home-subpath rel) (subpath (string-append HOME_DIR rel)))
+(define (home-literal rel) (literal (string-append HOME_DIR rel)))
+(define (home-prefix rel) (prefix (string-append HOME_DIR rel)))
+
+(deny default)
+```
+</CodeGroup>
+
+## Best Practices
+
+<Accordion title="Choose the right matcher for your use case">
+  - Use `home-literal` for single files: `~/.npmrc`, `~/.gitconfig`
+  - Use `home-prefix` for file variants: `~/.gitconfig*` pattern
+  - Use `home-subpath` for directories: `~/.config/git/`, `~/.npm/`
+</Accordion>
+
+<Accordion title="Understand the security implications">
+  - `literal` is most restrictive (safest)
+  - `prefix` can accidentally match more than intended
+  - `subpath` grants recursive access (use carefully)
+</Accordion>
+
+<Accordion title="Test your path matchers">
+  Always test that your path matchers work as expected. A common mistake is using `literal` when you need `prefix`, or vice versa.
+</Accordion>
+
+## Related Profiles
+
+<CardGroup cols={2}>
+  <Card title="System Runtime" icon="gears" href="/reference/profiles/system-runtime">
+    Core system paths and runtime permissions built on Base Profile helpers
+  </Card>
+  
+  <Card title="Toolchains" icon="wrench" href="/reference/profiles/toolchains">
+    Language-specific profiles using Base Profile macros
+  </Card>
+</CardGroup>

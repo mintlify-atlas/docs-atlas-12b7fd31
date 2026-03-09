@@ -1,0 +1,98 @@
+---
+title: "Cursor Agent"
+description: "Cursor IDE's built-in AI agent mode"
+---
+
+## Overview
+
+Cursor is a VS Code fork with built-in AI agent capabilities. Agent runs within Electron with Chromium sandbox.
+
+<Info>
+**Binary path:** `~/.local/bin/agent`, `~/.local/bin/cursor-agent`, `~/.local/bin/cursor`  
+**Config:** `~/.cursor/`, `~/Library/Application Support/Cursor/`  
+**Dependencies:** `$$require=55-integrations-optional/keychain.sb$$`
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/agent")
+    (home-prefix "/.local/bin/cursor-agent")
+    (home-prefix "/.local/bin/cursor")
+    (home-subpath "/.local/share/cursor-agent")
+    (home-subpath "/.cursor")
+    (home-subpath "/.config/cursor")
+    (home-subpath "/.cache/cursor-compile-cache")
+    (home-subpath "/Library/Caches/cursor-compile-cache")
+)
+
+(allow file-read*
+    (home-subpath "/Library/Application Support/Cursor")
+    (literal "/Applications")
+    (literal "/usr/local/bin/cursor")
+    (literal "/opt/homebrew/bin/cursor")
+    (subpath "/Applications/Cursor.app")
+)
+```
+
+## Running in Safehouse
+
+<Warning>
+**Cursor is an Electron app.** Safehouse grants access to the app bundle and config paths, but Cursor's own Chromium sandbox provides process isolation.
+
+For stronger guarantees, run Cursor in a container or VM.
+</Warning>
+
+```bash
+# Launch with standard integrations
+safehouse --enable=keychain,network -- cursor
+```
+
+## Agent Modes
+
+### Local Agent (Interactive)
+- Runs in IDE process with filesystem access
+- Terminal commands via user approval (or YOLO/auto-run mode)
+- LLM tool calling for multi-step tasks
+
+### Background Agent (Cloud)
+- Ubuntu VM in Cursor's AWS infrastructure
+- Docker container per agent
+- Produces PRs asynchronously
+- Configurable via `.cursor/environment.json`
+
+## Known Vulnerabilities
+
+<Warning>
+**CVE-2026-22708** -- Terminal allowlist bypass via shell built-ins  
+**CVE-2025-59944** -- Case-insensitive file overwrite  
+**CVE-2025-4609** -- Chromium sandbox escape (upstream)
+</Warning>
+
+See the [Cursor Agent profile](https://github.com/eugene1g/agent-safehouse/blob/main/profiles/60-agents/cursor-agent.sb) in the source repository for implementation details.
+
+## Configuration
+
+| Path | Purpose |
+|------|---------|
+| `.cursor/rules/` | Project rules |
+| `.cursor/mcp.json` | MCP server config |
+| `.cursor/environment.json` | Background agent config |
+| `User/globalStorage/state.vscdb` | SQLite state (command allowlists) |
+
+## Background Agent Environment
+
+```json
+{
+  "snapshot": "<cached-disk-image>",
+  "install": "npm install",
+  "start": "npm run dev",
+  "terminals": [
+    { "name": "server", "command": "npm run dev" }
+  ],
+  "env": {
+    "NODE_ENV": "development"
+  }
+}
+```

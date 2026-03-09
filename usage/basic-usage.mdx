@@ -1,0 +1,274 @@
+---
+title: "Basic Usage"
+description: "Common workflows and usage patterns for Agent Safehouse"
+icon: "play"
+---
+
+Agent Safehouse provides two primary modes: **policy generation** and **execute mode**. This guide covers the most common workflows.
+
+## Quick Start
+
+<Steps>
+
+<Step title="Generate a policy file">
+  Run Safehouse without a command to generate a sandbox policy:
+  
+  ```bash
+  safehouse
+  ```
+  
+  This prints the path to a generated policy file. You can inspect the policy or pass it to your own `sandbox-exec` invocation.
+  
+  <Tip>Use `--stdout` to print the policy text directly instead of the file path.</Tip>
+</Step>
+
+<Step title="Run a command in the sandbox">
+  Pass a command after `--` to execute it inside the sandbox:
+  
+  ```bash
+  safehouse -- claude --dangerously-skip-permissions
+  ```
+  
+  The policy is generated, the command runs inside it, and the policy file is cleaned up automatically.
+</Step>
+
+<Step title="Enable optional integrations">
+  Enable additional features like Docker, clipboard, or GUI access:
+  
+  ```bash
+  safehouse --enable=docker -- docker ps
+  safehouse --enable=clipboard,macos-gui -- cursor
+  ```
+</Step>
+
+</Steps>
+
+## Common Workflows
+
+### View Policy Text
+
+Print the generated sandbox policy to stdout:
+
+```bash
+safehouse --stdout
+```
+
+This is useful for understanding what permissions are granted, debugging issues, or sharing policy configurations.
+
+<Note>
+  When using `--stdout`, the command (if provided) is **not executed**. This mode only generates and displays the policy.
+</Note>
+
+### Execute Mode
+
+Run commands inside the sandbox with various permission grants:
+
+<CodeGroup>
+
+```bash Basic execution
+# Run a command with default workdir grants
+safehouse -- npm test
+```
+
+```bash With Docker
+# Enable Docker socket access
+safehouse --enable=docker -- docker ps
+```
+
+```bash Multiple features
+# Enable clipboard and GUI access for editor
+safehouse --enable=clipboard,macos-gui -- cursor
+```
+
+```bash Custom workdir
+# Override the working directory
+safehouse --workdir=/path/to/project -- aider
+```
+
+</CodeGroup>
+
+### Grant Additional Paths
+
+Grant read-only or read/write access to additional directories:
+
+```bash Read-only access
+# Grant read access to multiple directories (colon-separated)
+safehouse --add-dirs-ro="$HOME/shared:$HOME/references" -- claude
+```
+
+```bash Read/write access
+# Grant write access to build output
+safehouse --add-dirs="$HOME/build-output" -- npm run build
+```
+
+<Info>
+  Paths in `--add-dirs-ro` and `--add-dirs` are colon-separated (`:`) on macOS, similar to `PATH` variables.
+</Info>
+
+### Preserve Policy Files
+
+Save the generated policy to a specific file:
+
+```bash
+safehouse --output=/tmp/my-policy.sb -- /usr/bin/true
+```
+
+When `--output` is specified, the policy file is preserved after execution instead of being deleted.
+
+### Profile Detection
+
+Safehouse automatically loads agent and app profiles based on the command you're running:
+
+<CardGroup cols={2}>
+
+<Card title="CLI Agents" icon="terminal">
+  Profiles are detected by command name:
+  ```bash
+  safehouse -- claude    # Loads claude.sb
+  safehouse -- cursor    # Loads cursor.sb
+  safehouse -- aider     # Loads aider.sb
+  ```
+</Card>
+
+<Card title="App Bundles" icon="window">
+  App profiles are detected from `.app` bundles:
+  ```bash
+  safehouse -- open -a Claude  # Loads claude.app.sb
+  ```
+</Card>
+
+</CardGroup>
+
+<Tip>
+  Use `--explain` to see which profiles were loaded and why. This is helpful for debugging permission issues.
+</Tip>
+
+## Environment Variables
+
+By default, Safehouse runs commands with a **sanitized** environment containing only safe defaults. You can customize this behavior:
+
+### Pass-through Mode
+
+Inherit all environment variables from the host:
+
+```bash
+safehouse --env -- node build.js
+```
+
+<Warning>
+  `--env` passes **all** environment variables, including secrets. Use carefully with untrusted code.
+</Warning>
+
+### Load from File
+
+Start with sanitized defaults and overlay variables from a file:
+
+```bash
+safehouse --env=/path/to/env.sh -- npm test
+```
+
+The file is sourced by `/bin/bash`, so use shell syntax:
+
+```bash .env.sh
+export DATABASE_URL="postgresql://localhost/testdb"
+export API_KEY="test-key"
+```
+
+### Pass Specific Variables
+
+Add individual variables to the sanitized environment:
+
+```bash Single variable
+safehouse --env-pass=API_KEY -- node script.js
+```
+
+```bash Multiple variables
+safehouse --env-pass=API_KEY,DATABASE_URL -- npm test
+```
+
+<Info>
+  `--env-pass` is compatible with `--env=FILE` but **not** with `--env` (full pass-through).
+</Info>
+
+## Debugging and Inspection
+
+### Explain Mode
+
+Print detailed information about the policy generation:
+
+```bash
+safehouse --explain --stdout
+```
+
+This shows:
+- Effective working directory and source
+- Read-only and read/write path grants
+- Loaded agent/app profiles
+- Optional integrations included
+- Config file status (loaded, ignored, or not found)
+
+### Sandbox Denial Logs
+
+When operations fail due to sandbox restrictions, check the system logs:
+
+```bash
+/usr/bin/log stream --style compact --predicate 'eventMessage CONTAINS "Sandbox:" AND eventMessage CONTAINS "deny("'
+```
+
+Run this in a separate terminal while executing your sandboxed command to see real-time denial events.
+
+## Typical Patterns
+
+### Local Development
+
+```bash Run tests in sandbox
+cd ~/my-project
+safehouse -- npm test
+```
+
+### Multi-Tool Workflows
+
+```bash Git + Docker + Agent
+safehouse --enable=docker -- claude --dangerously-skip-permissions
+```
+
+<Note>
+  Git and common SCM tools are enabled by default. You don't need `--enable=git`.
+</Note>
+
+### Read-Only Project Access
+
+```bash Review mode
+safehouse --workdir="" --add-dirs-ro="$HOME/project" -- claude
+```
+
+This grants read-only access to the project without any write permissions.
+
+## Command Separator
+
+The `--` separator is **optional** but recommended:
+
+<CodeGroup>
+
+```bash With separator (recommended)
+safehouse --enable=docker -- docker ps -a
+```
+
+```bash Without separator (works)
+safehouse --enable=docker docker ps -a
+```
+
+</CodeGroup>
+
+The separator makes it explicit where Safehouse options end and the wrapped command begins. This prevents ambiguity when command arguments look like flags.
+
+## Exit Codes
+
+Safehouse preserves the exit code of the wrapped command:
+
+```bash
+safehouse -- /bin/sh -c 'exit 42'
+echo $?  # Prints: 42
+```
+
+If Safehouse itself encounters an error (invalid options, missing files, etc.), it exits with a non-zero code before executing the command.

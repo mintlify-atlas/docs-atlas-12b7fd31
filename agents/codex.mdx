@@ -1,0 +1,120 @@
+---
+title: "Codex (OpenAI)"
+description: "Rust-based coding agent with built-in macOS Seatbelt sandboxing"
+---
+
+## Overview
+
+OpenAI Codex is a Rust-based CLI agent with built-in sandboxing via `sandbox-exec` (macOS Seatbelt). Has process hardening (anti-debug, core dump prevention).
+
+<Info>
+**Binary path:** `~/.local/bin/codex`  
+**Config:** `~/.codex/`  
+**Dependencies:** `$$require=55-integrations-optional/keychain.sb$$`  
+**License:** Open source
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/codex")
+    (home-subpath "/.codex")
+    (home-subpath "/.cache/codex")
+)
+
+(allow file-read*
+    (home-literal "/Library/Preferences/com.openai.codex.plist")
+    (literal "/Library/Preferences/com.openai.codex.plist")
+    (literal "/Library/Managed Preferences/com.openai.codex.plist")
+    (subpath "/etc/codex")
+)
+```
+
+## Running in Safehouse
+
+```bash
+# Codex already sandboxes its tool calls
+safehouse --enable=keychain,network --add-dirs="$PWD" -- codex
+```
+
+<Note>
+**Codex sandboxes its own tool calls** using macOS `sandbox-exec`. Safehouse provides an additional outer layer of isolation for the Codex process itself.
+</Note>
+
+## Built-in Sandbox Features
+
+Codex's internal sandbox:
+
+- **Deny-by-default** policy
+- **`.git/` and `.codex/` protected** from writes (even in `WorkspaceWrite` mode)
+- **Network proxy** support (MITM routing for sandboxed processes)
+- **Parameterized policies** for dynamic writable roots
+
+### Sandbox Policies
+
+```rust
+pub enum SandboxPolicy {
+    ReadOnly,              // Read-only filesystem, no network
+    WorkspaceWrite,        // Write to specific roots only
+    DangerFullAccess,      // No sandboxing
+    ExternalSandbox,       // External sandbox manages restrictions
+}
+```
+
+## Process Hardening
+
+Codex runs security measures **before main()**:
+
+**macOS:**
+- `ptrace(PT_DENY_ATTACH)` -- Prevent debugger attachment
+- `setrlimit(RLIMIT_CORE, 0)` -- Disable core dumps
+- Remove `DYLD_*` env vars -- Prevent library injection
+
+**Linux:**
+- `prctl(PR_SET_DUMPABLE, 0)` -- Prevent ptrace
+- `setrlimit(RLIMIT_CORE, 0)` -- Disable core dumps
+- Remove `LD_*` env vars -- Prevent preload injection
+
+## MDM Integration
+
+**macOS Managed Preferences:**
+
+```rust
+const MANAGED_PREFERENCES_APPLICATION_ID: &str = "com.openai.codex";
+```
+
+Enterprise admins can deploy config via MDM profiles.
+
+## Configuration Hierarchy
+
+1. Cloud requirements (highest)
+2. MDM managed preferences (macOS)
+3. System config (`/etc/codex/config.toml`)
+4. User config (`~/.codex/config.toml`)
+5. Project config (`.codex/config.toml` in cwd)
+
+## OAuth Flows
+
+- **ChatGPT login** -- Browser OAuth via `auth.openai.com`
+- **MCP OAuth** -- Ephemeral callback port
+- **Local server** -- Binds to `localhost:1455` (default)
+
+## Security Recommendations
+
+<Tip>
+Codex is one of the most security-conscious agents:
+
+1. Built-in sandboxing for tool calls
+2. Process hardening (anti-debug, anti-dump)
+3. `.git/` and `.codex/` write protection
+4. Credentials use macOS Keychain by default
+5. `.env` file filtering (blocks `CODEX_*` vars)
+</Tip>
+
+Run with Safehouse for defense-in-depth:
+
+```bash
+# Outer sandbox + Codex internal sandbox
+safehouse --enable=keychain,network --add-dirs="$PWD" -- codex
+```

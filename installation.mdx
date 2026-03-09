@@ -1,0 +1,281 @@
+---
+title: Installation
+description: Install Agent Safehouse CLI and configure shell functions
+---
+
+Agent Safehouse is a single self-contained Bash script with no dependencies beyond macOS built-ins.
+
+## Prerequisites
+
+<Info>
+Agent Safehouse requires macOS with `sandbox-exec` (available on all modern macOS versions).
+</Info>
+
+- **macOS** (tested on macOS 11+)
+- **Bash** or **Zsh** shell
+- **curl** for downloading the script
+
+## Install the CLI
+
+<Steps>
+  <Step title="Create local bin directory">
+    Create a directory for local executables if it doesn't exist:
+
+    ```bash
+    mkdir -p ~/.local/bin
+    ```
+  </Step>
+
+  <Step title="Download safehouse">
+    Download the self-contained script from GitHub:
+
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/eugene1g/agent-safehouse/main/dist/safehouse.sh \
+      -o ~/.local/bin/safehouse
+    ```
+
+    <Note>
+    The `dist/safehouse.sh` file is a single executable containing assembled policies and runtime logic.
+    </Note>
+  </Step>
+
+  <Step title="Make executable">
+    Set execute permissions:
+
+    ```bash
+    chmod +x ~/.local/bin/safehouse
+    ```
+  </Step>
+
+  <Step title="Add to PATH">
+    Ensure `~/.local/bin` is in your PATH. Add to `~/.zshrc` or `~/.bashrc`:
+
+    ```bash
+    export PATH="$HOME/.local/bin:$PATH"
+    ```
+
+    Reload your shell:
+
+    ```bash
+    source ~/.zshrc  # or source ~/.bashrc
+    ```
+  </Step>
+
+  <Step title="Verify installation">
+    Confirm safehouse is accessible:
+
+    ```bash
+    which safehouse
+    # /Users/you/.local/bin/safehouse
+
+    safehouse --help
+    ```
+  </Step>
+</Steps>
+
+## Verify Sandbox Works
+
+Test that the sandbox denies access to sensitive paths:
+
+```bash
+# Try to read SSH key - should be denied
+safehouse cat ~/.ssh/id_ed25519
+# cat: /Users/you/.ssh/id_ed25519: Operation not permitted
+
+# Try to list home directory - should be denied
+safehouse ls ~
+# ls: /Users/you: Operation not permitted
+
+# But current directory works
+safehouse ls .
+# (lists files in current directory)
+```
+
+<Tip>
+If you see "Operation not permitted", the sandbox is working correctly!
+</Tip>
+
+## Shell Functions (Recommended)
+
+Shell functions provide convenient shortcuts and machine-specific defaults. Add to `~/.zshrc` or `~/.bashrc`:
+
+<CodeGroup>
+```bash Minimal Setup
+# ~/.zshrc or ~/.bashrc
+safe() { safehouse "$@"; }
+claude() { safe claude --dangerously-skip-permissions "$@"; }
+aider() { safe aider "$@"; }
+```
+
+```bash With Local Overrides
+# ~/.zshrc or ~/.bashrc
+export SAFEHOUSE_APPEND_PROFILE="$HOME/.config/agent-safehouse/local-overrides.sb"
+
+safe() {
+  safehouse \
+    --add-dirs-ro="$HOME/mywork" \
+    --append-profile="$SAFEHOUSE_APPEND_PROFILE" \
+    "$@"
+}
+
+claude()   { safe claude --dangerously-skip-permissions "$@"; }
+aider()    { safe aider "$@"; }
+codex()    { safe codex --dangerously-bypass-approvals-and-sandbox "$@"; }
+amp()      { safe amp --dangerously-allow-all "$@"; }
+```
+
+```bash Full Featured
+# ~/.zshrc or ~/.bashrc
+export SAFEHOUSE_APPEND_PROFILE="$HOME/.config/agent-safehouse/local-overrides.sb"
+
+safe() {
+  safehouse \
+    --add-dirs-ro="$HOME/server" \
+    --append-profile="$SAFEHOUSE_APPEND_PROFILE" \
+    "$@"
+}
+
+safeenv() { safe --env "$@"; }
+safekeys() { safe --env-pass=OPENAI_API_KEY,ANTHROPIC_API_KEY "$@"; }
+
+# Agent shortcuts (sandboxed by default)
+claude()   { safe claude --dangerously-skip-permissions "$@"; }
+aider()    { safe aider "$@"; }
+codex()    { safe codex --dangerously-bypass-approvals-and-sandbox "$@"; }
+amp()      { safe amp --dangerously-allow-all "$@"; }
+opencode() { OPENCODE_PERMISSION='{"*":"allow"}' safeenv opencode "$@"; }
+gemini()   { NO_BROWSER=true safeenv gemini --yolo "$@"; }
+goose()    { safe goose "$@"; }
+kilo()     { safe kilo "$@"; }
+pi()       { safe pi "$@"; }
+```
+</CodeGroup>
+
+Reload your shell:
+
+```bash
+source ~/.zshrc  # or source ~/.bashrc
+```
+
+<Info>
+With shell functions, you can type `claude` instead of `safehouse claude --dangerously-skip-permissions`.
+</Info>
+
+### Bypass Shell Functions
+
+To run the unsandboxed version when needed:
+
+```bash
+# Use 'command' to bypass the shell function
+command claude --dangerously-skip-permissions
+```
+
+## Optional: Local Overrides
+
+For machine-specific policy exceptions (e.g., shared folders, team mounts), create a local override file:
+
+<Steps>
+  <Step title="Create config directory">
+    ```bash
+    mkdir -p ~/.config/agent-safehouse
+    ```
+  </Step>
+
+  <Step title="Create local overrides file">
+    Create `~/.config/agent-safehouse/local-overrides.sb`:
+
+    ```scheme
+    ;; Local user overrides
+    ;; Host-specific exceptions that should not live in shared repo config
+    (allow file-read*
+      (home-literal "/.gitignore_global")
+      (home-subpath "/Library/Application Support/CleanShot/media")
+      (subpath "/Volumes/Shared/Engineering")
+    )
+    ```
+
+    <Note>
+    Use Sandbox Profile Language (`.sb`) syntax for custom rules. See [Policy Architecture](/advanced/policy-architecture) for details.
+    </Note>
+  </Step>
+
+  <Step title="Reference in shell function">
+    Your shell function (from above) should include:
+
+    ```bash
+    export SAFEHOUSE_APPEND_PROFILE="$HOME/.config/agent-safehouse/local-overrides.sb"
+    safe() {
+      safehouse --append-profile="$SAFEHOUSE_APPEND_PROFILE" "$@"
+    }
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+For single files, use `--add-dirs-ro` instead of creating a profile:
+
+```bash
+safehouse --add-dirs-ro=~/.gitignore -- claude --dangerously-skip-permissions
+```
+</Tip>
+
+## Optional: Claude Desktop Launcher
+
+For sandboxing the Claude Desktop app (not CLI), use the pre-built launcher:
+
+<Steps>
+  <Step title="Download launcher">
+    ```bash
+    # Online launcher (downloads latest policy at runtime)
+    curl -fsSL https://raw.githubusercontent.com/eugene1g/agent-safehouse/main/dist/Claude.app.sandboxed.command \
+      -o ~/Downloads/Claude.app.sandboxed.command
+    chmod +x ~/Downloads/Claude.app.sandboxed.command
+
+    # OR offline launcher (embedded policy, no runtime download)
+    curl -fsSL https://raw.githubusercontent.com/eugene1g/agent-safehouse/main/dist/Claude.app.sandboxed-offline.command \
+      -o ~/Downloads/Claude.app.sandboxed-offline.command
+    chmod +x ~/Downloads/Claude.app.sandboxed-offline.command
+    ```
+  </Step>
+
+  <Step title="Launch from Finder">
+    Double-click the `.command` file in Finder to launch Claude.app sandboxed.
+
+    The launcher runs:
+
+    ```bash
+    safehouse --workdir="<folder-containing-launcher>" \
+      --enable=electron -- \
+      /Applications/Claude.app/Contents/MacOS/Claude --no-sandbox
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+The `--no-sandbox` flag is required because Electron apps cannot be double-sandboxed. The outer Safehouse sandbox provides the protection.
+</Warning>
+
+## Update Safehouse
+
+To update to the latest version, re-download the script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eugene1g/agent-safehouse/main/dist/safehouse.sh \
+  -o ~/.local/bin/safehouse
+chmod +x ~/.local/bin/safehouse
+```
+
+<Tip>
+No uninstall needed - just delete `~/.local/bin/safehouse` and remove shell functions from your `.zshrc`/`.bashrc`.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get your first sandboxed agent running in 5 minutes
+  </Card>
+  <Card title="Usage Guide" icon="book" href="/usage">
+    Learn common patterns and CLI options
+  </Card>
+</CardGroup>

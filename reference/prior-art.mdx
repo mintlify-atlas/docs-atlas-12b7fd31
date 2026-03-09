@@ -1,0 +1,184 @@
+---
+title: "Prior Art"
+description: "Related projects, learning resources, and sandbox references"
+icon: "book"
+---
+
+Agent Safehouse builds on the macOS sandbox ecosystem and draws inspiration from other sandbox and AI agent security projects.
+
+## Related Sandbox Projects
+
+<CardGroup cols={2}>
+
+<Card title="Anthropic Sandbox Runtime" icon="github" href="https://github.com/anthropic-experimental/sandbox-runtime">
+  Official Anthropic sandbox reference implementation with TypeScript/Node and cross-platform network proxy support.
+</Card>
+
+<Card title="Claude Code Sandbox" icon="github" href="https://github.com/neko-kai/claude-code-sandbox">
+  Restrictive read policy experiments and ancestor literal grant insights.
+</Card>
+
+<Card title="trace.sh" icon="github" href="https://gist.github.com/n8henrie/eaaa1a25753fadbd7715e85a38b99831">
+  Automated deny-to-allow profile iteration and rule minimization scripts.
+</Card>
+
+<Card title="Sandboxes for AI" icon="link" href="https://www.luiscardoso.dev/blog/sandboxes-for-ai">
+  Overview of sandboxing patterns for AI agents by Luis Cardoso.
+</Card>
+
+</CardGroup>
+
+## macOS Sandbox Documentation
+
+<Info>
+Apple's `sandbox-exec` and Sandbox Profile Language documentation is limited. The best learning resources are example profiles and experimentation.
+</Info>
+
+### Built-in Profile Examples
+
+Your macOS system includes reference profiles:
+
+```bash
+# System profile examples
+ls /System/Library/Sandbox/Profiles/
+
+# Additional sandbox profiles
+ls /usr/share/sandbox/
+```
+
+### Agent Safehouse Source
+
+The project's own profiles serve as practical examples:
+
+- **Authored profiles**: `profiles/` directory (source of truth)
+- **Assembled examples**: `dist/profiles/safehouse.generated.sb` and `dist/profiles/safehouse-for-apps.generated.sb`
+
+## Learning Resources
+
+<CardGroup cols={1}>
+
+<Card title="Policy Architecture" icon="diagram-project" href="/concepts/policy-architecture">
+  Understand how Agent Safehouse assembles modular policy profiles.
+</Card>
+
+<Card title="Debugging Guide" icon="bug" href="/reference/troubleshooting">
+  Learn to debug sandbox denials and build profiles from scratch.
+</Card>
+
+<Card title="Contributing Guide" icon="code-pull-request" href="https://github.com/eugene1g/agent-safehouse/blob/main/CONTRIBUTING.md">
+  Read the contributing guide for .sb authoring expectations and patterns.
+</Card>
+
+</CardGroup>
+
+## Profile Language Reference
+
+### Common Matchers
+
+<AccordionGroup>
+
+<Accordion title="literal - Exact path match">
+Matches an exact file or directory path.
+
+```scheme
+(allow file-read*
+  (literal "/Users/alice/.gitconfig")
+)
+```
+
+Narrowest option, preferred when possible.
+</Accordion>
+
+<Accordion title="subpath - Recursive directory">
+Matches a directory and all its contents recursively.
+
+```scheme
+(allow file-read*
+  (subpath "/Users/alice/projects/reference-repo")
+)
+```
+
+Broader grant; use only when required.
+</Accordion>
+
+<Accordion title="prefix - Starts-with match">
+Matches any path starting with the given prefix.
+
+```scheme
+(allow file-read*
+  (prefix "/tmp/agent-")
+)
+```
+
+Useful for dynamic path patterns.
+</Accordion>
+
+<Accordion title="regex - Pattern matching">
+Matches paths using regular expressions.
+
+```scheme
+(allow file-read*
+  (regex #"^/Users/[^/]+/\\.npmrc$")
+)
+```
+
+Most flexible but hardest to audit.
+</Accordion>
+
+</AccordionGroup>
+
+### Common Operations
+
+<CardGroup cols={2}>
+
+<Card title="File Operations" icon="file">
+```scheme
+(allow file-read*)
+(allow file-write*)
+(allow file-read-metadata)
+```
+</Card>
+
+<Card title="Network Operations" icon="network-wired">
+```scheme
+(allow network-outbound)
+(allow network-inbound)
+(allow network-bind)
+```
+</Card>
+
+<Card title="Mach Services" icon="gears">
+```scheme
+(allow mach-lookup
+  (global-name "com.apple.service")
+)
+```
+</Card>
+
+<Card title="System Calls" icon="terminal">
+```scheme
+(allow sysctl-read
+  (sysctl-name "kern.osversion")
+)
+```
+</Card>
+
+</CardGroup>
+
+## Community
+
+<Note>
+Agent Safehouse is an open-source project. Contributions, bug reports, and documentation improvements are welcome.
+</Note>
+
+<CardGroup cols={2}>
+
+<Card title="GitHub Repository" icon="github" href="https://github.com/eugene1g/agent-safehouse">
+  View source, report issues, and contribute.
+</Card>
+
+<Card title="Issue Tracker" icon="circle-exclamation" href="https://github.com/eugene1g/agent-safehouse/issues">
+  Report bugs or request features.
+</Card>
+
+</CardGroup>

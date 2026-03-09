@@ -1,0 +1,473 @@
+---
+title: 'Default Assumptions'
+description: 'What Safehouse allows and denies by default'
+---
+
+# Default Assumptions
+
+Safehouse's default behavior is designed to make common coding workflows functional while keeping sensitive paths and integrations opt-in.
+
+This page documents the baseline assumptions so you know what to expect without configuration.
+
+## Design Assumptions
+
+The defaults follow four principles:
+
+<Steps>
+  <Step title="Agents should work with normal developer tooling">
+    Package managers, compilers, git, and language runtimes work out of the box
+  </Step>
+  
+  <Step title="Sensitive paths require explicit opt-in">
+    SSH keys, cloud credentials, browser data, and clipboard access are denied
+  </Step>
+  
+  <Step title="Least privilege should be practical to maintain">
+    Defaults balance security with usability; constant overrides would get disabled
+  </Step>
+  
+  <Step title="Final-deny overlays remain possible">
+    You can always add stricter rules via `--append-profile`
+  </Step>
+</Steps>
+
+## Allowed by Default
+
+### Filesystem Access
+
+<Accordion title="Selected Workdir (Read/Write)">
+  **What**: The project directory you're working in (git root above CWD, or CWD if not in a git repo)
+  
+  **Why**: The agent must read and modify files in your current project
+  
+  **Security Note**: The agent can only touch files in this directory, not other projects
+</Accordion>
+
+<Accordion title="System Runtime Paths (Read-Only)">
+  **What**: `/usr/bin`, `/bin`, `/usr/lib`, `/System/Library`, `/Library`, etc.
+  
+  **Why**: Shells, compilers, system utilities, and macOS frameworks live here
+  
+  **Security Note**: These are read-only and contain system software, not personal data
+</Accordion>
+
+<Accordion title="Toolchain Installation Directories (Read-Only to Read/Write)">
+  **What**: Node.js, Python, Go, Rust, Bun, Java, PHP, Perl, Ruby installations
+  
+  **Why**: Language runtimes and their package managers must be accessible
+  
+  **Security Note**: Read access to binaries; read/write to caches like `~/.npm`, `~/.cargo`, `~/.cache/pip`
+</Accordion>
+
+<Accordion title="Package Manager Caches (Read/Write)">
+  **What**: `~/.npm`, `~/.cargo`, `~/.cache/pip`, `~/.gem`, etc.
+  
+  **Why**: Package managers need to cache downloads for performance
+  
+  **Security Note**: Caches contain public packages, not sensitive data
+</Accordion>
+
+<Accordion title="Git Integration Paths (Selective)">
+  **What**: `.git` directories, `~/.gitconfig`, `~/.gitignore_global`, `~/.ssh/config`, `~/.ssh/known_hosts`
+  
+  **Why**: Git operations need repo metadata and SSH config for remotes
+  
+  **Security Note**: SSH private keys are explicitly **denied**; only config/known_hosts allowed
+</Accordion>
+
+<Accordion title="Temporary Directories (Read/Write)">
+  **What**: `/tmp`, `/var/tmp`, `$TMPDIR`
+  
+  **Why**: Many tools write temporary files during operations
+  
+  **Security Note**: Standard temp dirs, automatically cleaned by OS
+</Accordion>
+
+### Integrations
+
+<Accordion title="Core SCM Tools (Always On)">
+  **What**: `git`, `gh` (GitHub CLI), `glab` (GitLab CLI)
+  
+  **Why**: Version control is fundamental to coding workflows
+  
+  **Security Note**: Includes config files but not private keys
+</Accordion>
+
+<Accordion title="Agent-Specific Config Directories">
+  **What**: Config dirs for the specific agent being run (e.g., `~/.aider` for Aider, `~/.claude` for Claude)
+  
+  **Why**: Agents need their own state/config directories
+  
+  **Security Note**: Only the profile matching the wrapped command is loaded
+</Accordion>
+
+### Network and Environment
+
+<Accordion title="Network Access (Full)">
+  **What**: All network operations allowed
+  
+  **Why**: Package registries, git remotes, MCP servers, and LLM APIs require network
+  
+  **Security Note**: Safehouse does **not** prevent network exfiltration of allowed files
+</Accordion>
+
+<Accordion title="Sanitized Environment">
+  **What**: Minimal environment variables by default (PATH, HOME, TMPDIR, etc.)
+  
+  **Why**: Shell startup files (which may contain secrets) are denied, so full env is not passed
+  
+  **Security Note**: Use `--pass-env` or `--keep-env` to explicitly pass needed vars
+</Accordion>
+
+<Accordion title="Process Execution">
+  **What**: Ability to fork/exec child processes
+  
+  **Why**: Agents run compilers, linters, tests, git, npm, etc.
+  
+  **Security Note**: Child processes inherit the same sandbox policy
+</Accordion>
+
+## Opt-In (Disabled by Default)
+
+Enable these with `--enable=<integration>` only when needed:
+
+### Optional Integrations
+
+<CardGroup cols={2}>
+  <Card title="clipboard" icon="clipboard">
+    **What**: Clipboard read/write access via `pbcopy`/`pbpaste`
+    
+    **Enable when**: Agent needs to copy output or read clipboard input
+    
+    **Risk**: Users often copy sensitive data temporarily
+  </Card>
+  
+  <Card title="cloud-credentials" icon="cloud">
+    **What**: AWS, GCP, Azure credential files
+    
+    **Enable when**: Agent needs to deploy or query cloud resources
+    
+    **Risk**: Cloud credentials can access production infrastructure
+  </Card>
+  
+  <Card title="docker" icon="docker">
+    **What**: Docker socket and related access
+    
+    **Enable when**: Agent needs to build/run containers
+    
+    **Risk**: Docker socket can be used to escape sandbox via privileged containers
+  </Card>
+  
+  <Card title="kubectl" icon="dharmachakra">
+    **What**: Kubernetes config, cache, and krew state
+    
+    **Enable when**: Agent needs to interact with k8s clusters
+    
+    **Risk**: k8s credentials can access production workloads
+  </Card>
+  
+  <Card title="shell-init" icon="file-code">
+    **What**: Shell startup files (`.zshrc`, `.bashrc`, etc.)
+    
+    **Enable when**: Agent needs environment variables from shell config
+    
+    **Risk**: Shell files often contain API keys and tokens
+  </Card>
+  
+  <Card title="ssh" icon="key">
+    **What**: Extended SSH agent socket and system SSH config
+    
+    **Enable when**: Agent needs full SSH functionality beyond git-over-ssh
+    
+    **Risk**: SSH agent can be used to authenticate to remote servers
+  </Card>
+  
+  <Card title="browser-native-messaging" icon="browser">
+    **What**: Browser native messaging host integration paths
+    
+    **Enable when**: Agent needs to communicate with browser extensions
+    
+    **Risk**: Can interact with browser extensions that have elevated permissions
+  </Card>
+  
+  <Card title="process-control" icon="list-check">
+    **What**: Host process enumeration and signaling (ps, kill)
+    
+    **Enable when**: Agent needs to manage local processes
+    
+    **Risk**: Can list all running processes and terminate them
+  </Card>
+  
+  <Card title="lldb" icon="bug">
+    **What**: LLDB debugger toolchain and task-port access
+    
+    **Enable when**: Agent needs to debug running processes
+    
+    **Risk**: Debugger can inspect memory of all host processes
+  </Card>
+  
+  <Card title="macos-gui" icon="window">
+    **What**: GUI app-related integration paths
+    
+    **Enable when**: Agent is a desktop app or needs GUI features
+    
+    **Risk**: Access to app-specific state directories
+  </Card>
+  
+  <Card title="electron" icon="atom">
+    **What**: Electron integration (also enables `macos-gui`)
+    
+    **Enable when**: Agent is an Electron app (Cursor, VS Code, etc.)
+    
+    **Risk**: Access to Electron app directories and state
+  </Card>
+  
+  <Card title="wide-read" icon="book-open">
+    **What**: Broad read-only visibility across `/`
+    
+    **Enable when**: You need maximum convenience and trust the agent completely
+    
+    **Risk**: Can read most files on the system (defeats much of the sandbox purpose)
+  </Card>
+</CardGroup>
+
+### Agent/App Loading
+
+<Accordion title="all-agents">
+  **What**: Load all agent profiles (not just the one matching the command)
+  
+  **Enable when**: Running one agent that invokes other agent CLIs
+  
+  **Risk**: Grants access to config dirs for all known agents
+</Accordion>
+
+<Accordion title="all-apps">
+  **What**: Load all desktop app profiles
+  
+  **Enable when**: Running app-hosted agents that need multiple app configs
+  
+  **Risk**: Grants access to app-specific directories for all known apps
+</Accordion>
+
+## Explicitly Denied by Default
+
+These are **blocked** even if parent directories are allowed:
+
+<Warning>
+  These denials exist even if a broader allow rule might cover the path. Explicit denies take precedence.
+</Warning>
+
+<CardGroup cols={1}>
+  <Card title="SSH Private Keys" icon="lock">
+    **Paths**: `~/.ssh/id_*`, `~/.ssh/*_key`
+    
+    **Rationale**: Private keys provide authentication to remote servers; not needed for git-over-ssh
+  </Card>
+  
+  <Card title="Browser Profile Data" icon="browser">
+    **Paths**: Browser cookies, sessions, profiles (Chrome, Firefox, Safari)
+    
+    **Rationale**: Contains authentication sessions and personal browsing data
+  </Card>
+  
+  <Card title="Setuid/Setgid Executables" icon="shield-xmark">
+    **Paths**: Any executable with setuid/setgid bit set
+    
+    **Rationale**: These can be used for privilege escalation
+  </Card>
+  
+  <Card title="Raw Device Access" icon="hard-drive">
+    **Paths**: Most of `/dev` (with exceptions for `/dev/null`, `/dev/urandom`, etc.)
+    
+    **Rationale**: Direct device access can bypass filesystem permissions
+  </Card>
+</CardGroup>
+
+## Operational Defaults for Common Scenarios
+
+### Daily Coding Agent Use
+
+```bash
+# Minimal permissions: workdir + system paths
+safehouse claude --dangerously-skip-permissions
+```
+
+**Granted**: Workdir, system paths, toolchains, git
+
+**Denied**: SSH keys, cloud credentials, other repos, clipboard
+
+### Cross-Repo Read Context
+
+```bash
+# Add specific sibling repos read-only
+safehouse --add-dirs-ro="$HOME/other-repo,/Volumes/shared/team-repo" -- aider
+```
+
+**Granted**: Main workdir (read/write) + specified repos (read-only)
+
+**Denied**: All other dirs outside workdir and explicit grants
+
+### Cloud Task Burst
+
+```bash
+# Enable cloud credentials only for this session
+safehouse --enable=cloud-credentials -- claude deploy.md
+```
+
+**Granted**: AWS/GCP/Azure config files for deployment
+
+**Denied**: Credentials are revoked when command exits
+
+### Docker/k8s Workflow
+
+```bash
+# Enable container/cluster access
+safehouse --enable=docker --enable=kubectl -- aider
+```
+
+**Granted**: Docker socket, k8s config
+
+**Denied**: Other cloud credentials, SSH keys
+
+### Local Process Triage
+
+```bash
+# Allow process listing without full debugger access
+safehouse --enable=process-control -- goose
+```
+
+**Granted**: Process enumeration, signaling (ps, kill)
+
+**Denied**: LLDB debugger, memory inspection
+
+### IDE App-Hosted Agents
+
+```bash
+# For Electron apps like Cursor or VS Code
+safehouse --enable=electron -- cursor
+```
+
+**Granted**: Electron app directories, GUI integration, `macos-gui`
+
+**Denied**: Other app profiles unless `--enable=all-agents`
+
+## Before You Enable Anything
+
+Ask yourself these questions:
+
+<Steps>
+  <Step title="Is this required for the current task?">
+    Or is it just convenient? Convenience today can be a security incident tomorrow.
+  </Step>
+  
+  <Step title="Can I scope it narrower?">
+    Instead of `--enable=wide-read`, use `--add-dirs-ro` for specific paths.
+  </Step>
+  
+  <Step title="Can I make it read-only?">
+    Use `--add-dirs-ro` instead of `--add-dirs` if the agent only needs to read.
+  </Step>
+  
+  <Step title="Should this be temporary?">
+    Enable for a single command rather than adding to your shell alias.
+  </Step>
+</Steps>
+
+## How to Override Defaults
+
+### Grant Additional Directories
+
+```bash
+# Read-only access to specific paths
+safehouse --add-dirs-ro="/path/to/docs,/path/to/reference" -- aider
+
+# Read/write access to additional directories
+safehouse --add-dirs="/path/to/shared/workspace" -- claude
+```
+
+### Enable Optional Integrations
+
+```bash
+# Single integration
+safehouse --enable=clipboard -- aider
+
+# Multiple integrations
+safehouse --enable=docker --enable=cloud-credentials -- claude
+```
+
+### Apply Custom Policy Overlays
+
+```bash
+# Append a custom .sb file (loaded last, overrides all other rules)
+safehouse --append-profile="$HOME/.config/agent-safehouse/local.sb" -- claude
+```
+
+**Example `local.sb`**:
+
+```scheme
+;; Deny access to a specific file even if workdir is allowed
+(deny file-read* (home-subpath "workdir/secrets.txt"))
+
+;; Allow read-only access to a machine-specific path
+(allow file-read* (subpath "/Volumes/Shared/Engineering"))
+```
+
+<Tip>
+  Use `--append-profile` for machine-specific exceptions that shouldn't live in shared repo config.
+</Tip>
+
+### Explain Current Settings
+
+```bash
+# See what would be granted without running a command
+safehouse --explain --stdout
+
+# With optional integrations
+safehouse --enable=docker --enable=clipboard --explain --stdout
+```
+
+## Trust Workdir Config
+
+By default, `.safehouse` config files in project directories are **ignored** for security.
+
+```bash
+# Explicitly trust the current workdir's .safehouse file
+safehouse --trust-workdir-config -- aider
+```
+
+<Warning>
+  Only use `--trust-workdir-config` in repos you control. A malicious `.safehouse` file could weaken the sandbox.
+</Warning>
+
+## Summary Table
+
+| Category | Default | Why | Override |
+|----------|---------|-----|----------|
+| **Workdir** | ✅ Read/Write | Agent must modify project files | `--workdir=""` to disable |
+| **System paths** | ✅ Read-Only | Required for shells, compilers | Cannot disable |
+| **Toolchains** | ✅ Read-Only (+ RW caches) | Language runtimes and package managers | Cannot disable |
+| **Git integration** | ✅ Config only | Version control workflows | Cannot disable |
+| **SSH keys** | ❌ Denied | Not needed; high risk | `--enable=ssh` (not recommended) |
+| **Cloud credentials** | ❌ Denied | Opt-in for cloud tasks | `--enable=cloud-credentials` |
+| **Clipboard** | ❌ Denied | Opt-in when needed | `--enable=clipboard` |
+| **Docker** | ❌ Denied | Opt-in for container workflows | `--enable=docker` |
+| **Shell startup** | ❌ Denied | Often contains secrets | `--enable=shell-init` |
+| **Network** | ✅ Allowed | Package managers, git, APIs | Cannot disable (by design) |
+| **Other repos** | ❌ Denied | Deny-first model | `--add-dirs` or `--add-dirs-ro` |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Getting Started" icon="rocket" href="/quickstart">
+    Install Safehouse and run your first sandboxed agent
+  </Card>
+  <Card title="Customization" icon="sliders" href="/customize/overview">
+    Learn how to create custom policies for specific needs
+  </Card>
+  <Card title="Debugging" icon="bug" href="/reference/debugging">
+    Diagnose and fix sandbox denial issues
+  </Card>
+  <Card title="Policy Architecture" icon="diagram-project" href="/reference/policy-architecture">
+    Understand how policy assembly works
+  </Card>
+</CardGroup>

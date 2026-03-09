@@ -1,0 +1,42 @@
+---
+title: "GitHub Copilot CLI"
+description: "GitHub's AI command-line assistant"
+---
+
+## Overview
+
+GitHub Copilot CLI provides AI-powered command suggestions and explanations.
+
+<Info>
+**Binary path:** `~/.local/bin/copilot`, `~/bin/copilot` (Homebrew: `/opt/homebrew/bin/copilot`)  
+**Config:** `~/.copilot/`  
+**Dependencies:** `$$require=55-integrations-optional/keychain.sb$$`
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/copilot")
+    (home-prefix "/bin/copilot")
+    (home-subpath "/.copilot")
+)
+```
+
+## Running in Safehouse
+
+```bash
+# With keychain and network
+safehouse --enable=keychain,network -- copilot
+```
+
+## Configuration
+
+- **Config dir:** `~/.copilot/` (or via `--config-dir`)
+- **Auth:** macOS Keychain via VS Code SecretStorage
+- **Session state:** Logs, unpacked assets, config in `~/.copilot`
+
+## Integration Notes
+
+- Homebrew cask installs covered by `/opt` runtime grant
+- npm/pnpm global installs expose launcher via `~/.local/bin` or `~/bin`

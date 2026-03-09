@@ -1,0 +1,287 @@
+---
+title: 'Design Philosophy'
+description: 'Principles and tradeoffs behind Agent Safehouse'
+---
+
+# Design Philosophy
+
+Agent Safehouse is built around **practical least privilege**: strong default constraints with minimal workflow friction.
+
+## Core Principles
+
+The design follows four guiding principles:
+
+<CardGroup cols={2}>
+  <Card title="Start from Deny-All" icon="ban">
+    Begin with `(deny default)` and only allow what's needed
+  </Card>
+  <Card title="Allow Only What's Required" icon="circle-check">
+    Each permission must answer: does the agent need this to do useful work?
+  </Card>
+  <Card title="Keep Workflows Productive" icon="bolt">
+    Default grants should support normal coding without constant overrides
+  </Card>
+  <Card title="Make Risk Reduction Easy" icon="shield">
+    Secure-by-default behavior should be the path of least resistance
+  </Card>
+</CardGroup>
+
+## Not a Security Boundary
+
+<Warning>
+  Safehouse is a **hardening layer**, not a perfect security boundary against a determined attacker.
+</Warning>
+
+This distinction is critical:
+
+### What Safehouse IS
+
+- **Blast radius reduction**: Limits damage from mistakes, confusion, or simple attacks
+- **Least privilege enforcement**: Restricts filesystem access to what's actually needed
+- **Defense in depth**: Adds a meaningful layer to your security posture
+- **Practical containment**: Works with real workflows without major disruption
+
+### What Safehouse IS NOT
+
+- **Perfect isolation**: Not a VM boundary; shares the host kernel
+- **Escape-proof**: `sandbox-exec` has been bypassed before and may be again
+- **Network protection**: Cannot prevent exfiltration of allowed files over the network
+- **Credential vault**: Cannot protect credentials that must be accessible for the task
+
+## Design Tradeoffs
+
+Every security tool makes tradeoffs. Safehouse explicitly chooses:
+
+### Usability Over Paranoia
+
+<Accordion title="Rationale">
+  If security is too burdensome, users will disable it. Safehouse aims to be secure enough to use daily without constant friction.
+  
+  **Implication**: Some integrations (like network access) are allowed by default because denying them would break too many workflows.
+</Accordion>
+
+**Example**: Network access is allowed by default because:
+- Package managers need registries (npm, pip, cargo)
+- Git needs to fetch/push to remotes
+- MCP servers need network connections
+- LLM APIs need network access
+
+Denying network by default would make Safehouse impractical for most users.
+
+### Host-Native Over Isolation Purity
+
+<Accordion title="Rationale">
+  VMs provide stronger isolation but require duplicate toolchains, workspace syncing, and credential management. Safehouse prioritizes native host compatibility.
+  
+  **Implication**: You get filesystem containment without the overhead of a separate guest OS.
+</Accordion>
+
+**Example**: Your sandboxed agent uses:
+- The same `node`, `python`, `go` binaries as your normal shell
+- The same package manager caches
+- The same git config
+- The same editor/IDE
+
+No duplication or syncing required.
+
+### Composability Over Monolithic Policies
+
+<Accordion title="Rationale">
+  Different tasks need different permissions. Modular profiles let you enable only what's needed for the current task.
+  
+  **Implication**: Policy assembly is more complex, but you get fine-grained control without rewriting entire policies.
+</Accordion>
+
+**Example**: Three different tasks with three different permission sets:
+
+```bash
+# Basic coding: minimal permissions
+safehouse aider
+
+# Docker workflow: add docker socket
+safehouse --enable=docker -- aider
+
+# Cloud deployment: add cloud credentials
+safehouse --enable=cloud-credentials --enable=kubectl -- aider
+```
+
+### Deny-First Over Allow-List
+
+<Accordion title="Rationale">
+  Starting from deny-all means new filesystem locations are blocked by default. This is safer than an allow-list that might miss sensitive paths.
+  
+  **Implication**: You may need to add `--add-dirs-ro` for cross-repo references, but you won't accidentally expose sensitive files.
+</Accordion>
+
+**Example**: If you create a new `~/secrets` directory:
+
+- **Without sandbox**: Agent can access it immediately (unsafe)
+- **With Safehouse**: Agent is denied access unless you explicitly grant it (safe)
+
+## Threat Model
+
+Safehouse is designed to protect against:
+
+<CardGroup cols={1}>
+  <Card title="✅ Prompt Injection" icon="shield-check">
+    **Threat**: Malicious instructions embedded in files, docs, or web content
+    
+    **Protection**: Agent cannot access SSH keys, cloud credentials, or other repos even if instructed to
+  </Card>
+  
+  <Card title="✅ Confused Deputy" icon="shield-check">
+    **Threat**: Agent misinterprets vague instructions and performs unintended actions
+    
+    **Protection**: Damage is limited to the workdir; cannot touch unrelated projects or personal files
+  </Card>
+  
+  <Card title="✅ Buggy Commands" icon="shield-check">
+    **Threat**: Agent generates a command with typos or wrong paths (`rm -rf` in wrong directory)
+    
+    **Protection**: Filesystem constraints prevent deletion or modification outside the workdir
+  </Card>
+  
+  <Card title="✅ Supply Chain Risks" icon="shield-check">
+    **Threat**: Compromised agent tool or MCP server attempts to steal credentials
+    
+    **Protection**: Credentials outside the sandbox policy are inaccessible
+  </Card>
+</CardGroup>
+
+### Not Designed to Protect Against
+
+<CardGroup cols={1}>
+  <Card title="❌ Sophisticated Attackers" icon="xmark">
+    **Threat**: Adversary actively researching sandbox escapes
+    
+    **Why**: `sandbox-exec` is not a VM boundary; escapes have existed and will exist again
+    
+    **Recommendation**: Use a VM for adversarial scenarios
+  </Card>
+  
+  <Card title="❌ Network Exfiltration" icon="xmark">
+    **Threat**: Agent sends allowed file contents to attacker-controlled server
+    
+    **Why**: Network is allowed by default for functionality
+    
+    **Recommendation**: Use network monitoring or air-gapped VMs for sensitive data
+  </Card>
+  
+  <Card title="❌ Authorized IPC Abuse" icon="xmark">
+    **Threat**: Agent uses allowed IPC channels (like git operations) to leak data
+    
+    **Why**: Blocking all IPC would break normal workflows
+    
+    **Recommendation**: Monitor git commits and network activity
+  </Card>
+</CardGroup>
+
+## Key Design Decisions
+
+### Why Sandbox-Exec?
+
+<Accordion title="Native macOS Integration">
+  `sandbox-exec` is built into macOS and used by Apple's own apps. It's well-tested, performant, and requires no kernel extensions or system modifications.
+</Accordion>
+
+<Accordion title="No External Dependencies">
+  The core wrapper is pure Bash + Sandbox Profile Language. No compilation, no build step, no external runtime.
+</Accordion>
+
+<Accordion title="Fine-Grained Filesystem Control">
+  Sandbox Profile Language supports exact paths, recursive subpaths, prefixes, and regex matchers - perfect for coding workflows.
+</Accordion>
+
+### Why Composable Profiles?
+
+<Accordion title="Task-Specific Permissions">
+  Different tasks need different permissions. Composability lets you grant only what's needed without maintaining separate monolithic policies.
+</Accordion>
+
+<Accordion title="Maintainability">
+  Small, focused profiles are easier to audit and update than large, monolithic policy files.
+</Accordion>
+
+<Accordion title="Extensibility">
+  New integrations can be added as new profiles without modifying existing ones.
+</Accordion>
+
+### Why Allow Network by Default?
+
+<Accordion title="Fundamental to Coding Workflows">
+  Package managers, git remotes, MCP servers, and LLM APIs all require network access. Denying by default would make Safehouse unusable for most people.
+</Accordion>
+
+<Accordion title="Mitigation Through Filesystem Control">
+  Even with network access, the agent can only exfiltrate files it's allowed to read. Filesystem containment is the primary defense.
+</Accordion>
+
+### Why Deny Shell Startup Files?
+
+<Accordion title="Prevents Credential Leakage">
+  Many users put API keys, tokens, and other secrets in `.zshrc` or `.bashrc` for convenience. Denying access by default protects these.
+</Accordion>
+
+<Accordion title="Explicit Environment Control">
+  Safehouse provides a sanitized environment. If you need specific env vars, use `--pass-env` or `--keep-env` explicitly.
+</Accordion>
+
+## Philosophy in Practice
+
+### Example 1: SSH Keys
+
+**Decision**: Deny `~/.ssh/id_*` by default, allow `~/.ssh/config` and `~/.ssh/known_hosts`
+
+**Rationale**:
+- Git-over-SSH needs `config` and `known_hosts` to connect to remotes
+- Private keys themselves are not needed (SSH agent handles auth)
+- Reading private keys provides no legitimate value but high risk
+
+**Result**: Git workflows work, but private keys are protected.
+
+### Example 2: Package Manager Caches
+
+**Decision**: Allow read/write to `~/.npm`, `~/.cargo`, `~/.cache/pip`, etc.
+
+**Rationale**:
+- Agents frequently need to install dependencies
+- Denying cache access would force re-downloads and break workflows
+- Cache contents are not sensitive (public packages)
+
+**Result**: Package managers work normally with minimal overhead.
+
+### Example 3: Clipboard Access
+
+**Decision**: Deny by default, require `--enable=clipboard`
+
+**Rationale**:
+- Not needed for most coding tasks
+- Users often copy sensitive data temporarily
+- Explicit opt-in prevents surprise clipboard access
+
+**Result**: Users grant clipboard access only when needed for the current task.
+
+## Philosophical Alignment
+
+Safehouse aligns with the principle of **least privilege** as defined in classic security literature:
+
+> Every program and every user of the system should operate using the least set of privileges necessary to complete the job.
+> 
+> — Jerome Saltzer, Communications of the ACM, 1974
+
+But it balances this with the reality that:
+
+<Info>
+  Security mechanisms that are too restrictive get disabled or bypassed. Practical security must account for human behavior and workflow needs.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Isolation Models" icon="layer-group" href="/concepts/isolation-models">
+    Compare Safehouse to VMs and containers
+  </Card>
+  <Card title="Default Assumptions" icon="list-check" href="/concepts/default-assumptions">
+    See the complete allow/deny matrix
+  </Card>
+</CardGroup>

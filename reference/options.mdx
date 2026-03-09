@@ -1,0 +1,383 @@
+---
+title: CLI Options
+description: Complete reference of all safehouse CLI flags and parameters
+---
+
+All safehouse options can be specified in two formats: `--option VALUE` or `--option=VALUE`.
+
+## Policy Scope Options
+
+### --enable
+
+<ParamField path="--enable" type="string">
+  Comma-separated list of optional features to enable.
+  
+  **Format:** `--enable FEATURES` or `--enable=FEATURES`
+  
+  **Examples:**
+  ```bash
+  safehouse --enable=docker -- docker ps
+  safehouse --enable docker,kubectl -- kubectl get pods
+  safehouse --enable=all-agents -- claude
+  ```
+  
+  See [Integrations](/reference/integrations) for the complete list of available features.
+</ParamField>
+
+### --workdir
+
+<ParamField path="--workdir" type="string" default="Current directory">
+  Main directory to grant read/write access. The sandbox automatically grants full access to this directory and its contents.
+  
+  **Special value:** Empty string (`--workdir=""`) disables automatic workdir grants entirely.
+  
+  **Examples:**
+  ```bash
+  # Grant access to specific project
+  safehouse --workdir=/path/to/project -- aider
+  
+  # Disable workdir grants
+  safehouse --workdir="" -- claude
+  
+  # Use environment variable
+  export SAFEHOUSE_WORKDIR=~/projects/myapp
+  safehouse -- cursor
+  ```
+  
+  **Priority order:**
+  1. `--workdir` flag (highest)
+  2. `SAFEHOUSE_WORKDIR` environment variable
+  3. Current working directory (default)
+</ParamField>
+
+### --add-dirs-ro
+
+<ParamField path="--add-dirs-ro" type="string">
+  Colon-separated file/directory paths to grant read-only access.
+  
+  **Format:** `--add-dirs-ro PATHS` or `--add-dirs-ro=PATHS`
+  
+  **Examples:**
+  ```bash
+  # Single path
+  safehouse --add-dirs-ro=/etc/config -- app
+  
+  # Multiple paths
+  safehouse --add-dirs-ro=/etc/config:/var/data -- app
+  
+  # Combine with environment variable
+  export SAFEHOUSE_ADD_DIRS_RO=/shared/readonly
+  safehouse --add-dirs-ro=/etc/ssl -- app
+  ```
+  
+  Paths from the flag are combined with `SAFEHOUSE_ADD_DIRS_RO` environment variable.
+</ParamField>
+
+### --add-dirs
+
+<ParamField path="--add-dirs" type="string">
+  Colon-separated file/directory paths to grant read/write access.
+  
+  **Format:** `--add-dirs PATHS` or `--add-dirs=PATHS`
+  
+  **Examples:**
+  ```bash
+  # Grant write access to additional directories
+  safehouse --add-dirs=/tmp/cache:/var/log/app -- myapp
+  
+  # Combine with environment variable
+  export SAFEHOUSE_ADD_DIRS=/shared/writable
+  safehouse --add-dirs=/tmp/output -- app
+  ```
+  
+  Paths from the flag are combined with `SAFEHOUSE_ADD_DIRS` environment variable.
+</ParamField>
+
+<Warning>
+Read-write grants should be used sparingly. Only grant write access to directories that absolutely need it.
+</Warning>
+
+### --env
+
+<ParamField path="--env" type="boolean | string">
+  Controls environment variable passing to the sandboxed command.
+  
+  **Mode 1: Full passthrough** (`--env`)
+  ```bash
+  # Pass all environment variables
+  safehouse --env -- myapp
+  ```
+  
+  **Mode 2: Load from file** (`--env=FILE`)
+  ```bash
+  # Load variables from file (sourced by /bin/bash)
+  safehouse --env=.env.production -- myapp
+  ```
+  
+  The file is sourced by Bash, not parsed as dotenv. File values override sanitized defaults.
+  
+  **Default:** Sanitized environment with safe variables only (PATH, HOME, USER, etc.)
+  
+  <Note>
+  `--env` (passthrough) cannot be combined with `--env=FILE` or `--env-pass`.
+  </Note>
+</ParamField>
+
+### --env-pass
+
+<ParamField path="--env-pass" type="string">
+  Comma-separated environment variable names to pass through on top of sanitized defaults.
+  
+  **Format:** `--env-pass NAMES` or `--env-pass=NAMES`
+  
+  Can be specified multiple times; names are deduplicated.
+  
+  **Examples:**
+  ```bash
+  # Pass specific variables
+  safehouse --env-pass=API_KEY,DATABASE_URL -- app
+  
+  # Multiple --env-pass flags
+  safehouse --env-pass=AWS_PROFILE --env-pass=NODE_ENV -- app
+  
+  # Combine with environment variable
+  export SAFEHOUSE_ENV_PASS=DEBUG,VERBOSE
+  safehouse --env-pass=API_KEY -- app
+  ```
+  
+  Compatible with default sanitized mode and `--env=FILE`. Incompatible with `--env` (passthrough).
+</ParamField>
+
+### --trust-workdir-config
+
+<ParamField path="--trust-workdir-config" type="boolean" default="false">
+  Trust and load configuration from `<workdir>/.safehouse` file.
+  
+  **Format:** `--trust-workdir-config` or `--trust-workdir-config=BOOL`
+  
+  **Accepted boolean values:** `1`, `0`, `true`, `false`, `yes`, `no`, `on`, `off`
+  
+  **Examples:**
+  ```bash
+  # Trust .safehouse in current directory
+  safehouse --trust-workdir-config -- app
+  
+  # Via environment variable
+  export SAFEHOUSE_TRUST_WORKDIR_CONFIG=true
+  safehouse -- app
+  ```
+  
+  **Supported config file keys:**
+  - `add-dirs-ro=PATHS`
+  - `add-dirs=PATHS`
+  
+  <Warning>
+  Only enable this for directories you control. Untrusted `.safehouse` files could grant excessive permissions.
+  </Warning>
+</ParamField>
+
+### --append-profile
+
+<ParamField path="--append-profile" type="string">
+  Append an additional sandbox profile file after generated rules. Can be specified multiple times.
+  
+  **Format:** `--append-profile PATH` or `--append-profile=PATH`
+  
+  Files are appended in argument order. Later rules override earlier ones.
+  
+  **Examples:**
+  ```bash
+  # Add custom allow rules
+  safehouse --append-profile=./custom-rules.sb -- app
+  
+  # Stack multiple profiles
+  safehouse --append-profile=base.sb --append-profile=overrides.sb -- app
+  ```
+  
+  <Info>
+  This is the most powerful customization option. Use it to:
+  - Add custom allow rules
+  - Override default denials
+  - Create project-specific policies
+  </Info>
+</ParamField>
+
+### --output
+
+<ParamField path="--output" type="string">
+  Write policy to a specific file path instead of a temporary file.
+  
+  **Format:** `--output PATH` or `--output=PATH`
+  
+  When specified, the policy file persists after execution (not automatically cleaned up).
+  
+  **Examples:**
+  ```bash
+  # Save policy to file (policy mode)
+  safehouse --output=./my-policy.sb
+  
+  # Save and execute
+  safehouse --output=./policy.sb -- myapp
+  # Policy file remains after execution
+  ```
+</ParamField>
+
+## Output Options
+
+### --stdout
+
+<ParamField path="--stdout" type="flag">
+  Print policy text to stdout instead of executing a command.
+  
+  Forces policy mode even if a command is provided.
+  
+  **Examples:**
+  ```bash
+  # View generated policy
+  safehouse --stdout
+  
+  # View with integrations
+  safehouse --enable=docker,kubectl --stdout
+  
+  # Save to file
+  safehouse --stdout > policy.sb
+  ```
+</ParamField>
+
+### --explain
+
+<ParamField path="--explain" type="flag">
+  Print detailed policy decision summary to stderr.
+  
+  Shows:
+  - Effective workdir and source
+  - All path grants (read-only and read-write)
+  - Selected agent profiles and reasons
+  - Optional integration selections
+  - Config file status (found/trusted/loaded)
+  
+  **Examples:**
+  ```bash
+  # Debug policy generation
+  safehouse --explain --stdout
+  
+  # Debug during execution
+  safehouse --explain -- myapp 2>debug.log
+  ```
+  
+  <Info>
+  Use `--explain` to understand:
+  - Why files are accessible or blocked
+  - Which profiles are active
+  - Where configuration values originate
+  </Info>
+</ParamField>
+
+## General Options
+
+### --help
+
+<ParamField path="--help" type="flag">
+  Show help message and exit.
+  
+  **Aliases:** `-h`, `--help`
+  
+  ```bash
+  safehouse --help
+  safehouse -h
+  ```
+</ParamField>
+
+## Environment Variables
+
+All major options have environment variable equivalents:
+
+<CodeGroup>
+```bash Workdir
+export SAFEHOUSE_WORKDIR=/path/to/project
+safehouse -- app
+```
+
+```bash Add Directories
+export SAFEHOUSE_ADD_DIRS_RO=/etc/config:/var/data
+export SAFEHOUSE_ADD_DIRS=/tmp/cache
+safehouse -- app
+```
+
+```bash Trust Config
+export SAFEHOUSE_TRUST_WORKDIR_CONFIG=true
+safehouse -- app
+```
+
+```bash Env Pass
+export SAFEHOUSE_ENV_PASS=API_KEY,DATABASE_URL
+safehouse -- app
+```
+</CodeGroup>
+
+<Note>
+CLI flags take precedence over environment variables when both are specified.
+</Note>
+
+## Priority & Precedence
+
+### Path Grants Assembly Order
+
+1. Core system profiles (base, runtime, network, toolchains)
+2. Shared profiles and core integrations (git, scm-clis)
+3. Optional integrations from `--enable`
+4. Agent/app profiles (auto-detected from command)
+5. `--add-dirs-ro` paths (CLI + environment variable)
+6. `--add-dirs` paths (CLI + environment variable)
+7. Workdir grant (if not disabled)
+8. `--append-profile` overlays (in argument order)
+
+**Later rules win.** Deny rules in `--append-profile` take precedence over all earlier allows.
+
+### Configuration Sources Priority
+
+For `--workdir`:
+1. `--workdir` flag (highest)
+2. `SAFEHOUSE_WORKDIR` environment variable
+3. Current working directory (default)
+
+For `--trust-workdir-config`:
+1. `--trust-workdir-config` flag (highest)
+2. `SAFEHOUSE_TRUST_WORKDIR_CONFIG` environment variable
+3. `false` (default)
+
+### Path Combination Rules
+
+- `--add-dirs-ro` flag + `SAFEHOUSE_ADD_DIRS_RO` → combined (both applied)
+- `--add-dirs` flag + `SAFEHOUSE_ADD_DIRS` → combined (both applied)
+- `.safehouse` config file paths → combined with CLI/env (if trusted)
+
+## Shell Argument Parsing
+
+<CodeGroup>
+```bash Two-argument format
+safehouse --enable docker
+safehouse --workdir /path/to/dir
+```
+
+```bash Equals format
+safehouse --enable=docker
+safehouse --workdir=/path/to/dir
+```
+
+```bash Mixed (both valid)
+safehouse --enable docker --workdir=/project -- app
+```
+</CodeGroup>
+
+<Warning>
+Always use the `--` separator when command arguments might start with `--`:
+
+```bash
+# Correct
+safehouse -- myapp --verbose
+
+# Wrong (--verbose parsed as safehouse option)
+safehouse myapp --verbose
+```
+</Warning>

@@ -1,0 +1,398 @@
+---
+title: 'Isolation Models'
+description: 'Comparing VMs, containers, and Safehouse'
+---
+
+# Isolation Models: VMs vs Containers vs Safehouse
+
+Safehouse is **not** a VM replacement. It's a low-friction host-level containment layer optimized for local agent workflows on macOS.
+
+Understanding the differences helps you choose the right tool for your threat model.
+
+## Quick Comparison
+
+| Feature | VMs | Containers | Safehouse |
+|---------|-----|------------|----------|
+| **Isolation Boundary** | Guest OS boundary | Process namespace/cgroup | macOS Seatbelt policy |
+| **Kernel Separation** | Yes (separate kernel) | No (shared kernel*) | No (shared kernel) |
+| **Default Filesystem** | Guest filesystem only | Container filesystem | Deny-first host paths |
+| **Performance Overhead** | High | Low to medium | Very low |
+| **Agent Workflow Compatibility** | Lower (requires setup/sync) | Medium | High (native tooling) |
+| **Best For** | Strong adversarial isolation | App packaging & deployment | Day-to-day coding agent use |
+
+<Info>
+  *Containers on macOS often run inside a lightweight VM (Docker Desktop, Lima, etc.), adding VM-level isolation.
+</Info>
+
+## Virtual Machines
+
+### How They Work
+
+VMs run a complete guest operating system on a hypervisor:
+
+<Steps>
+  <Step title="Hypervisor Layer">
+    Software like VMware, Parallels, or Apple's Hypervisor.framework creates isolated guest instances
+  </Step>
+  
+  <Step title="Separate Kernel">
+    Each VM runs its own kernel, completely isolated from the host
+  </Step>
+  
+  <Step title="Guest Filesystem">
+    VM disk is a file on the host; guest sees it as a complete filesystem
+  </Step>
+  
+  <Step title="Explicit Host Mounts">
+    Host directories must be explicitly shared and mounted
+  </Step>
+</Steps>
+
+### Security Properties
+
+<CardGroup cols={1}>
+  <Card title="✅ Strongest Isolation" icon="shield-halved">
+    Separate kernel means bugs in the guest cannot directly affect the host
+  </Card>
+  
+  <Card title="✅ Escape Resistance" icon="lock">
+    VM escapes exist but are rare and typically patched quickly
+  </Card>
+  
+  <Card title="✅ Network Isolation Options" icon="network-wired">
+    Can fully disconnect guest from network or use NAT/bridge configurations
+  </Card>
+  
+  <Card title="✅ Snapshotting" icon="camera">
+    Easy rollback to known-good states after risky operations
+  </Card>
+</CardGroup>
+
+### Practical Tradeoffs
+
+<Warning>
+  **High Overhead**: VMs require significant resources (RAM, disk, CPU) and add latency to I/O operations.
+</Warning>
+
+**Workflow Friction**:
+- **Duplicate toolchains**: Must install Node, Python, Go, etc. inside the guest
+- **Workspace syncing**: Need strategy for keeping host/guest files in sync
+- **Credential management**: SSH keys, git config, API tokens must be managed separately
+- **GUI limitations**: Running GUI agents (Cursor, Claude.app) in a VM is awkward
+- **Copy/paste friction**: Clipboard integration varies by hypervisor
+
+### When to Use VMs
+
+<CardGroup cols={1}>
+  <Card title="Adversarial Scenarios" icon="user-secret">
+    Testing untrusted code, analyzing malware, or defending against sophisticated attackers
+  </Card>
+  
+  <Card title="Air-Gapped Environments" icon="plane-slash">
+    Work that must be completely network-isolated
+  </Card>
+  
+  <Card title="Regulatory Compliance" icon="scale-balanced">
+    Environments where VM boundaries are required by policy
+  </Card>
+</CardGroup>
+
+## Containers
+
+### How They Work
+
+Containers use OS-level virtualization (namespaces, cgroups) to isolate processes:
+
+<Steps>
+  <Step title="Shared Kernel">
+    All containers share the host kernel (unlike VMs)
+  </Step>
+  
+  <Step title="Namespace Isolation">
+    Process, network, filesystem, and user namespaces provide separation
+  </Step>
+  
+  <Step title="Container Filesystem">
+    Layered filesystem (overlayfs) provides isolated view of files
+  </Step>
+  
+  <Step title="Explicit Bind Mounts">
+    Host directories must be explicitly mounted with `-v` or `--mount`
+  </Step>
+</Steps>
+
+### Security Properties
+
+<CardGroup cols={1}>
+  <Card title="✅ Process Isolation" icon="diagram-project">
+    Container processes cannot see or signal host processes
+  </Card>
+  
+  <Card title="✅ Filesystem Isolation" icon="folder-tree">
+    Container sees only its own filesystem unless bind mounts are added
+  </Card>
+  
+  <Card title="⚠️ Shared Kernel" icon="kernel">
+    Kernel exploits can potentially escape the container
+  </Card>
+  
+  <Card title="⚠️ Privileged Containers" icon="crown">
+    Easy to accidentally weaken isolation with `--privileged` or excessive capabilities
+  </Card>
+</CardGroup>
+
+### Practical Tradeoffs
+
+**Better for Apps Than Agents**:
+- Containers excel at packaging **server applications** with dependencies
+- Desktop-hosted agents (Cursor, Claude.app) don't fit the container model well
+- CLI agents in containers work but lose native shell integration
+
+**Workflow Considerations**:
+- **Toolchain packaging**: Can bundle exact versions, good for reproducibility
+- **Volume mounting**: Easy to mount host workdir read-only or read/write
+- **Credential mounting**: Can mount SSH keys, cloud configs as volumes (security risk)
+- **Network**: Usually NAT'd by default, can be isolated if needed
+- **macOS specifics**: Docker Desktop runs containers inside a lightweight Linux VM
+
+### When to Use Containers
+
+<CardGroup cols={1}>
+  <Card title="Reproducible Environments" icon="clone">
+    Ensuring the agent uses exact toolchain versions across machines
+  </Card>
+  
+  <Card title="CLI-Only Agents" icon="terminal">
+    Non-GUI agents (Aider, Goose) running on servers or in CI
+  </Card>
+  
+  <Card title="Dependency Isolation" icon="box">
+    Preventing agent dependencies from conflicting with host packages
+  </Card>
+</CardGroup>
+
+## Safehouse (sandbox-exec)
+
+### How It Works
+
+Safehouse uses macOS's built-in Seatbelt/sandbox-exec mechanism:
+
+<Steps>
+  <Step title="Policy Composition">
+    Assembles a Sandbox Profile Language (.sb) policy from modular components
+  </Step>
+  
+  <Step title="Sandbox-Exec Invocation">
+    Launches your command under `sandbox-exec -f policy.sb -- command`
+  </Step>
+  
+  <Step title="Kernel Enforcement">
+    macOS kernel enforces the policy for the process and all its children
+  </Step>
+  
+  <Step title="Filesystem Interposition">
+    Every file operation is checked against the policy; unauthorized attempts are denied
+  </Step>
+</Steps>
+
+### Security Properties
+
+<CardGroup cols={1}>
+  <Card title="✅ Filesystem Containment" icon="folder-lock">
+    Fine-grained control over which paths are readable/writable
+  </Card>
+  
+  <Card title="✅ Process Restrictions" icon="ban">
+    Can limit process signaling, debugging, and IPC (configurable)
+  </Card>
+  
+  <Card title="⚠️ Shared Kernel" icon="kernel">
+    Same kernel as host; not a VM boundary
+  </Card>
+  
+  <Card title="⚠️ Escape Potential" icon="door-open">
+    Sandbox escapes have occurred in the past; not proof against sophisticated attackers
+  </Card>
+</CardGroup>
+
+### Practical Tradeoffs
+
+**Optimized for Usability**:
+- **Native tooling**: Uses your host's Node, Python, Go installations directly
+- **No duplication**: No need for separate tool installs inside a container/VM
+- **Zero syncing**: Works directly on host filesystem (with restrictions)
+- **GUI support**: Works perfectly with desktop agents like Cursor and Claude.app
+- **Minimal overhead**: Near-zero performance impact
+
+**Workflow Integration**:
+- Same shell environment (with sanitization)
+- Same git config and SSH setup
+- Same editor/IDE
+- Same package manager caches
+
+### When to Use Safehouse
+
+<CardGroup cols={1}>
+  <Card title="Daily Coding Workflows" icon="code">
+    Regular use of agents on your local machine
+  </Card>
+  
+  <Card title="GUI Agents" icon="window">
+    Cursor, Claude.app, VS Code with Copilot, etc.
+  </Card>
+  
+  <Card title="Low-Friction Security" icon="feather">
+    Want protection without workflow disruption
+  </Card>
+  
+  <Card title="Blast Radius Reduction" icon="bullseye">
+    Limit damage from mistakes, not defending against nation-states
+  </Card>
+</CardGroup>
+
+## Detailed Comparison
+
+### Threat Model Match
+
+| Threat | VM | Container | Safehouse |
+|--------|-----|-----------|----------|
+| Prompt injection | ✅ Excellent | ✅ Good | ✅ Good |
+| Buggy commands | ✅ Excellent | ✅ Good | ✅ Good |
+| Confused deputy | ✅ Excellent | ✅ Good | ✅ Good |
+| Supply chain compromise | ✅ Excellent | ⚠️ Medium | ⚠️ Medium |
+| Sophisticated attacker | ✅ Excellent | ⚠️ Medium | ❌ Limited |
+| Network exfiltration | ✅ Good (can air-gap) | ⚠️ Medium (NAT) | ❌ Not protected |
+
+### Workflow Compatibility
+
+| Workflow | VM | Container | Safehouse |
+|----------|-----|-----------|----------|
+| CLI agents | ⚠️ Requires setup | ✅ Native fit | ✅ Seamless |
+| GUI agents | ❌ Awkward | ❌ Not supported | ✅ Seamless |
+| Shell integration | ❌ Separate env | ⚠️ Limited | ✅ Native |
+| Toolchain usage | ❌ Duplicate install | ⚠️ Must package | ✅ Host tooling |
+| Performance | ❌ High overhead | ⚠️ Medium | ✅ Minimal |
+| Workspace sync | ❌ Required | ⚠️ Volume mounts | ✅ Not needed |
+
+### Administrative Overhead
+
+| Task | VM | Container | Safehouse |
+|------|-----|-----------|----------|
+| Initial setup | ❌ High | ⚠️ Medium | ✅ Low |
+| Maintenance | ❌ High | ⚠️ Medium | ✅ Low |
+| Updates | ❌ Guest OS + tools | ⚠️ Rebuild images | ✅ Host updates apply |
+| Credential management | ❌ Duplicate/mount | ⚠️ Mount secrets | ✅ Selective access |
+
+## Layering Models
+
+<Tip>
+  For maximum protection, combine models: Run your agent inside a VM, then run Safehouse inside that VM.
+</Tip>
+
+### VM + Safehouse
+
+<Steps>
+  <Step title="VM Isolation">
+    Run your coding workflow inside a VM (UTM, Parallels, VMware)
+  </Step>
+  
+  <Step title="Safehouse Inside VM">
+    Install Safehouse in the VM guest and wrap your agent commands
+  </Step>
+  
+  <Step title="Defense in Depth">
+    - VM boundary protects host from guest escapes
+    - Safehouse restricts agent filesystem access inside guest
+    - Network isolation can be added at VM level
+  </Step>
+</Steps>
+
+**Result**: Strong isolation boundary **plus** granular in-guest path control.
+
+### Container + Safehouse
+
+<Steps>
+  <Step title="Container Base">
+    Package your agent environment as a container
+  </Step>
+  
+  <Step title="Safehouse Layer">
+    Install Safehouse in the container and set it as the entrypoint wrapper
+  </Step>
+  
+  <Step title="Combined Protection">
+    - Container provides process/network isolation
+    - Safehouse restricts filesystem within container
+  </Step>
+</Steps>
+
+**Result**: Reproducible environment **plus** defense-in-depth filesystem policy.
+
+## Choosing the Right Model
+
+<Accordion title="Use Safehouse alone when:">
+  - You're doing daily coding with agents on your local machine
+  - You want protection without workflow disruption
+  - You use GUI agents (Cursor, Claude.app, etc.)
+  - Threat model is mistakes and simple attacks, not sophisticated adversaries
+  - You need minimal overhead and native tooling
+</Accordion>
+
+<Accordion title="Use Containers when:">
+  - You're running CLI-only agents in server environments
+  - You need reproducible toolchain versions
+  - You're packaging agents for deployment or CI/CD
+  - You can tolerate the overhead of volume mounts and networking config
+</Accordion>
+
+<Accordion title="Use VMs when:">
+  - You're testing untrusted code or analyzing malware
+  - Your threat model includes sophisticated attackers or sandbox escapes
+  - Regulatory/compliance requirements mandate VM boundaries
+  - You need true air-gapped environments
+  - Workflow friction and resource overhead are acceptable
+</Accordion>
+
+<Accordion title="Layer VMs + Safehouse when:">
+  - You want the strongest practical protection
+  - You can tolerate VM overhead
+  - You still want fine-grained filesystem control inside the guest
+  - Defense-in-depth is a priority
+</Accordion>
+
+## Summary
+
+<CardGroup cols={3}>
+  <Card title="VMs" icon="server">
+    **Strongest isolation**
+    
+    Best for adversarial scenarios, but highest friction and overhead
+  </Card>
+  
+  <Card title="Containers" icon="box">
+    **App packaging**
+    
+    Great for servers and CLI tools, awkward for desktop agents
+  </Card>
+  
+  <Card title="Safehouse" icon="shield-halved">
+    **Practical hardening**
+    
+    Native workflows with meaningful blast-radius reduction
+  </Card>
+</CardGroup>
+
+<Info>
+  There's no single "best" model. Choose based on your specific threat model, workflow needs, and tolerance for friction.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Default Assumptions" icon="list-check" href="/concepts/default-assumptions">
+    Learn what Safehouse allows and denies by default
+  </Card>
+  <Card title="Getting Started" icon="rocket" href="/quickstart">
+    Install Safehouse and run your first sandboxed agent
+  </Card>
+</CardGroup>

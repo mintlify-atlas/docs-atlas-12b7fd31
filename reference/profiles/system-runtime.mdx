@@ -1,0 +1,287 @@
+---
+title: "System Runtime Profile"
+description: "Process execution, system paths, device nodes, and baseline mach services for agent workflows"
+---
+
+The System Runtime Profile (`10-system-runtime.sb`) provides the foundational permissions that enable agents to spawn processes, access system binaries, use temporary directories, and interact with macOS services. This is the minimum runtime surface needed for local development workflows.
+
+## Overview
+
+This profile enables:
+- **Process Execution**: Run shells, compilers, package managers, and test runners
+- **System Binaries**: Access to `/usr`, `/bin`, `/sbin`, `/opt`, and macOS frameworks
+- **Temporary Files**: Read/write access to `/tmp` and `/var/folders`
+- **Device Nodes**: Terminal I/O, PTYs, and entropy sources
+- **Mach Services**: DNS, logging, and system configuration services
+
+<Info>
+  The System Runtime Profile is automatically included in all Agent Safehouse policies. You cannot disable it without breaking basic agent functionality.
+</Info>
+
+## System Paths
+
+### Core System Binaries
+
+Agents need access to system binaries and libraries for spawning tools:
+
+```scheme
+(allow file-read*
+    (subpath "/usr")                    ;; Core system binaries and libraries
+    (subpath "/bin")                    ;; POSIX userland binaries
+    (subpath "/sbin")                   ;; System utilities
+    (subpath "/opt")                    ;; Homebrew and package managers
+    (subpath "/System/Library")         ;; macOS runtime frameworks
+    (subpath "/Library/Apple")          ;; Apple private frameworks
+    (subpath "/Library/Frameworks")     ;; Global framework lookup path
+    (subpath "/Library/Java")           ;; JVM runtime assets
+    (subpath "/Library/Fonts")          ;; Font reads for renderers
+)
+```
+
+<Warning>
+  The `/opt` path includes Homebrew installations. If you don't want agents to access Homebrew packages, you'll need custom policy overrides.
+</Warning>
+
+### Configuration and System Files
+
+Essential system configuration files for networking, DNS, and shell operations:
+
+```scheme
+(allow file-read*
+    (literal "/private/etc/hosts")         ;; Host override file
+    (literal "/private/etc/resolv.conf")   ;; DNS resolver configuration
+    (literal "/private/etc/services")      ;; Service name-to-port mappings
+    (literal "/private/etc/protocols")     ;; Protocol metadata
+    (literal "/private/etc/shells")        ;; Valid shell list
+    (subpath "/private/etc/ssl")           ;; TLS CA bundles
+    (literal "/private/etc/localtime")     ;; Localtime symlink
+    (literal "/etc")                       ;; Compatibility symlink
+    (literal "/var")                       ;; Compatibility symlink
+)
+```
+
+### XDG Base Directory Metadata
+
+Agents probe common XDG paths during startup:
+
+```scheme
+(allow file-read-metadata
+    (home-literal "/.config")          ;; XDG config root traversal
+    (home-literal "/.cache")           ;; XDG cache root traversal
+    (home-literal "/.local")           ;; XDG data root traversal
+    (home-literal "/.local/share")     ;; XDG data share directory
+    (home-literal "/.local/bin")       ;; User-installed binaries
+)
+```
+
+<Note>
+  `file-read-metadata` allows directory traversal and `stat()` calls but not reading file contents. This is sufficient for path resolution without exposing data.
+</Note>
+
+## Process Control
+
+### Execution and Forking
+
+Agents frequently chain subprocesses, so process primitives are broadly allowed:
+
+```scheme
+(allow process-exec)                              ;; Execute binaries and shells
+(allow process-fork)                              ;; Create child processes
+(allow sysctl-read)                               ;; Runtime introspection
+(allow process-info* (target same-sandbox))       ;; Process introspection within sandbox
+(allow signal (target same-sandbox))              ;; Signal child processes
+(allow mach-priv-task-port (target same-sandbox)) ;; Process control for runtimes
+(allow pseudo-tty)                                ;; PTY allocation
+```
+
+<Accordion title="Why are process permissions so broad?">
+  Agent workflows inherently involve spawning many subprocesses: git, npm, python, cargo, docker, etc. Restricting process execution would break core agent functionality. Agent Safehouse focuses on **data access control** rather than process restrictions.
+</Accordion>
+
+### Commented Debug Permissions
+
+For debugging, you can enable additional process introspection:
+
+```scheme
+; Broader permissions to get info of other processes for debugging
+;(allow process-info-pidinfo)         ;; Process status polling
+;(allow process-info-setcontrol)      ;; Process control metadata
+```
+
+Uncomment these lines if you need agents to monitor or control processes outside the sandbox.
+
+## Temporary Files and Sockets
+
+### Read/Write Temp Access
+
+Agents need temporary storage for builds, caches, and IPC:
+
+```scheme
+(allow file-read* file-write*
+    (subpath "/tmp")                    ;; Primary temp directory
+    (subpath "/private/tmp")            ;; macOS backing path
+    (subpath "/var/folders")            ;; Per-user temp/cache roots
+    (subpath "/private/var/folders")    ;; macOS backing path
+)
+```
+
+### Launchd Listener Socket Protection
+
+A defense-in-depth measure blocks launchd listener sockets by default:
+
+```scheme
+(deny file-read* file-write*
+    (regex #"^/private/tmp/com\.apple\.launchd\.[^/]+/Listeners$")
+    (regex #"^/tmp/com\.apple\.launchd\.[^/]+/Listeners$")
+)
+```
+
+<Warning>
+  These sockets provide access to SSH agent, pasteboard (clipboard), and other sensitive services. They are **denied by default** and must be explicitly enabled through integration profiles (e.g., `ssh.sb`, `clipboard.sb`).
+</Warning>
+
+## Device Nodes
+
+### Terminal I/O and PTYs
+
+Shell sessions and interactive tools require device node access:
+
+```scheme
+(allow file-read* file-write*
+    (subpath "/dev/fd")          ;; File descriptor access
+    (literal "/dev/stdout")      ;; Standard output
+    (literal "/dev/stderr")      ;; Standard error
+    (literal "/dev/null")        ;; Null device
+    (literal "/dev/tty")         ;; Controlling terminal
+    (literal "/dev/ptmx")        ;; PTY multiplexer
+    (regex #"^/dev/tty")         ;; Dynamic TTY devices
+    (regex #"^/dev/pty")         ;; PTY devices
+)
+```
+
+### Entropy Sources
+
+Cryptographic operations need random data:
+
+```scheme
+(allow file-read*
+    (literal "/dev/urandom")     ;; Non-blocking entropy
+    (literal "/dev/random")      ;; Blocking entropy
+    (literal "/dev/zero")        ;; Zero-filled source
+)
+```
+
+### Terminal Control (ioctl)
+
+Restrict `ioctl` operations to terminal devices:
+
+```scheme
+(allow file-ioctl
+    (literal "/dev/tty")         ;; TTY mode/attribute ioctls
+    (literal "/dev/ptmx")        ;; PTY master control
+    (regex #"^/dev/tty")         ;; Dynamic TTY paths
+)
+```
+
+## Mach Services
+
+Agents require various macOS system services for networking, logging, and file events:
+
+```scheme
+(allow mach-lookup
+    (global-name "com.apple.system.notification_center")
+    (global-name "com.apple.system.opendirectoryd.libinfo")
+    (global-name "com.apple.logd")
+    (global-name "com.apple.FSEvents")
+    (global-name "com.apple.SystemConfiguration.configd")
+    (global-name "com.apple.SystemConfiguration.DNSConfiguration")
+    (global-name "com.apple.trustd.agent")
+    (global-name "com.apple.dnssd.service")
+    (global-name "com.apple.CoreServices.coreservicesd")
+)
+```
+
+<CardGroup cols={2}>
+  <Card title="DNS & Networking" icon="network-wired">
+    `dnssd.service`, `SystemConfiguration.DNSConfiguration`, and `configd` enable DNS resolution for package managers and git operations
+  </Card>
+  
+  <Card title="Logging & Diagnostics" icon="file-lines">
+    `logd`, `diagnosticd`, and `analyticsd` support unified logging used by system frameworks
+  </Card>
+  
+  <Card title="File Events" icon="folder-open">
+    `FSEvents` allows file system watchers for development tools like test runners and build systems
+  </Card>
+  
+  <Card title="Trust & Security" icon="shield">
+    `trustd.agent` enables HTTPS certificate validation for package downloads
+  </Card>
+</CardGroup>
+
+### System Sockets
+
+```scheme
+(allow system-socket)  ;; AF_SYSTEM sockets for kernel event monitoring
+```
+
+### Shared Memory
+
+Notification Center uses POSIX shared memory:
+
+```scheme
+(allow ipc-posix-shm-read-data
+    (ipc-posix-name "apple.shm.notification_center")
+)
+```
+
+## Integration with Other Profiles
+
+The System Runtime Profile provides the foundation that other profiles build upon:
+
+<CardGroup cols={2}>
+  <Card title="Base Profile" icon="layer-group" href="/reference/profiles/base">
+    Uses `HOME_DIR` and helper macros defined in Base Profile
+  </Card>
+  
+  <Card title="Toolchains" icon="wrench" href="/reference/profiles/toolchains">
+    Toolchain profiles depend on system runtime for process execution and temp files
+  </Card>
+  
+  <Card title="Network Profile" icon="wifi" href="/reference/profiles/network">
+    Network profile extends these mach services with socket operations
+  </Card>
+  
+  <Card title="Integrations" icon="plug" href="/reference/profiles/integrations">
+    Integration profiles selectively enable launchd listener sockets and additional services
+  </Card>
+</CardGroup>
+
+## Customization Examples
+
+<Accordion title="Restrict Homebrew access">
+  If you want to prevent agents from accessing Homebrew packages, create a custom deny rule:
+  
+  ```scheme
+  (deny file-read* (subpath "/opt/homebrew"))
+  ```
+  
+  Add this via `--append-profile` to override the System Runtime allow rule.
+</Accordion>
+
+<Accordion title="Enable process debugging">
+  Uncomment the debugging process permissions:
+  
+  ```scheme
+  (allow process-info-pidinfo)
+  (allow process-info-setcontrol)
+  ```
+</Accordion>
+
+<Accordion title="Add custom system paths">
+  If your environment uses non-standard system paths:
+  
+  ```scheme
+  (allow file-read* (subpath "/usr/local/custom"))
+  ```
+</Accordion>

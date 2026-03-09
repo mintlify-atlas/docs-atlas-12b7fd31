@@ -1,0 +1,58 @@
+---
+title: "Cline"
+description: "VS Code extension AI coding assistant with browser automation"
+---
+
+## Overview
+
+Cline is a VS Code extension (formerly Roo Code) with React webview UI, providing file editing, shell execution, browser automation via Puppeteer, and MCP integration.
+
+<Info>
+**Extension ID:** `saoudrizwan.claude-dev`  
+**Storage:** `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/`  
+**Dependencies:** `$$require=55-integrations-optional/keychain.sb$$`
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/cline")
+    (home-subpath "/.cline")
+    (home-subpath "/.config/cline")
+    (home-subpath "/.cache/cline")
+    (home-subpath "/.local/share/cline")
+    (home-subpath "/.local/state/cline")
+    (home-subpath "/Documents/Cline")
+    (home-subpath "/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev")
+    (home-literal "/.qwen/oauth_creds.json")
+)
+
+(allow file-read*
+    (home-literal "/.oca/config.json")
+)
+```
+
+## Running in VS Code
+
+<Warning>
+**Cline runs inside VS Code's Extension Host.** Safehouse cannot directly sandbox VS Code extensions. For isolation:
+
+1. Run VS Code itself in a container/VM
+2. Use `--add-dirs` to restrict workspace access
+3. Extensions inherit VS Code's network policy
+</Warning>
+
+## Key Capabilities
+
+- **Browser automation** -- Downloads Chromium (~150MB) to extension storage
+- **MCP integration** -- stdio, SSE, StreamableHTTP transports
+- **Multiple OAuth flows** -- Claude Code, OpenAI Codex, MCP servers
+- **CLI mode** -- Standalone session mode with gRPC ProtoBus (port 26040)
+
+## Security Considerations
+
+1. **Standalone secrets** -- Stored in plain JSON (`~/.cline/data/secrets.json`)
+2. **gRPC insecure** -- Uses `grpc.ServerCredentials.createInsecure()` on port 26040
+3. **Chromium download** -- Puppeteer downloads full browser binary
+4. **Machine ID** -- Reads `IOPlatformSerialNumber` on macOS

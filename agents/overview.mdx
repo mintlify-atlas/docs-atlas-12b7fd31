@@ -1,0 +1,192 @@
+---
+title: "Agent Compatibility Overview"
+description: "Complete list of coding agents supported by Agent Safehouse with sandboxing status and integration details"
+---
+
+Agent Safehouse provides macOS sandbox wrappers for 15 coding agents, constraining their filesystem and network access using Apple's `sandbox-exec` (Seatbelt) framework.
+
+## Supported Agents
+
+<CardGroup cols={3}>
+  <Card title="Aider" icon="python" href="/agents/aider">
+    Python CLI assistant with terminal UI
+  </Card>
+  <Card title="Amp" icon="bolt" href="/agents/amp">
+    Clipboard-aware coding agent
+  </Card>
+  <Card title="Auggie" icon="a" href="/agents/auggie">
+    Augment Code CLI agent
+  </Card>
+  <Card title="Claude Code" icon="c" href="/agents/claude-code">
+    Anthropic's CLI/TUI agent
+  </Card>
+  <Card title="Cline" icon="code" href="/agents/cline">
+    VS Code extension agent
+  </Card>
+  <Card title="Codex" icon="cube" href="/agents/codex">
+    OpenAI Codex CLI (Rust)
+  </Card>
+  <Card title="Copilot CLI" icon="github" href="/agents/copilot-cli">
+    GitHub Copilot command line
+  </Card>
+  <Card title="Cursor Agent" icon="cursor" href="/agents/cursor-agent">
+    Cursor IDE agent mode
+  </Card>
+  <Card title="Droid" icon="robot" href="/agents/droid">
+    Factory CLI coding agent
+  </Card>
+  <Card title="Gemini CLI" icon="google" href="/agents/gemini-cli">
+    Google's Gemini CLI agent
+  </Card>
+  <Card title="Goose" icon="goose" href="/agents/goose">
+    Block's open-source agent
+  </Card>
+  <Card title="Kilo Code" icon="k" href="/agents/kilo-code">
+    VS Code extension (Cline fork)
+  </Card>
+  <Card title="OpenCode" icon="code" href="/agents/opencode">
+    Open-source CLI/TUI agent
+  </Card>
+  <Card title="Pi" icon="pi" href="/agents/pi">
+    Minimal CLI coding agent
+  </Card>
+</CardGroup>
+
+## How Agent Profiles Work
+
+Each agent has a dedicated sandbox profile in `profiles/60-agents/<agent>.sb` that grants:
+
+- **Binary paths** -- Where the agent CLI is installed (`~/.local/bin/`, brew, npm global, etc.)
+- **Config directories** -- Agent settings, sessions, logs (`~/.agent-name/`)
+- **State/cache** -- Session data, model caches, MCP configurations
+- **Integrations** -- Keychain access (when needed), MCP paths, hooks directories
+
+Profiles are **layered** on top of base system access. See [Policy Architecture](/advanced/policy-architecture) for the complete policy stack.
+
+## Shell Wrapper Functions
+
+Safehouse provides shell functions for each agent. Add to your `~/.zshrc` or `~/.bashrc`:
+
+```bash
+# Source the generated shell wrappers
+source ~/path/to/safehouse/dist/safehouse.sh
+
+# Now use agents with automatic sandboxing:
+aider --help
+claude "write a function"
+goose
+```
+
+Each function wraps the agent binary with `safehouse --` to apply the sandbox policy.
+
+## Sandbox Policy Examples
+
+### Read-Only Workspace (Default)
+
+```bash
+# Agent can read workspace but not modify files
+safehouse -- aider --no-auto-commits
+```
+
+### Workspace Write Access
+
+```bash
+# Allow file modifications in current directory
+safehouse --add-dirs=$PWD -- claude "refactor this"
+```
+
+### Network Isolation
+
+By default, agents have **no network access** in the sandbox. Enable selectively:
+
+```bash
+# Enable network for LLM API calls
+safehouse --enable=network -- goose
+```
+
+### Custom Integrations
+
+Some agents require additional integrations:
+
+```bash
+# Claude Code with keychain + browser
+safehouse --enable=keychain,browser-native-messaging -- claude
+
+# Aider with clipboard (Amp-style)
+safehouse --enable=clipboard -- amp
+```
+
+## Agent Investigation Reports
+
+Each agent has a detailed investigation report analyzing:
+
+- UI architecture (TUI framework, Electron, web UI)
+- Authentication mechanisms (API keys, OAuth, keychain)
+- Filesystem access patterns (config, state, temp files)
+- Network endpoints (LLM APIs, telemetry, update checks)
+- Subprocess execution (shell commands, git, npm, docker)
+- Known vulnerabilities and CVEs
+
+See the individual agent pages for complete analysis.
+
+## Adding New Agents
+
+To add support for a new agent:
+
+1. **Create profile** -- `profiles/60-agents/new-agent.sb` with binary and config paths
+2. **Test access** -- Use `--explain` to verify granted paths match agent needs
+3. **Add dependencies** -- Use `$$require=path/to/integration.sb$$` for keychain, clipboard, etc.
+4. **Regenerate dist** -- Run `./scripts/generate-dist.sh` to update packaged artifacts
+5. **Test sandbox** -- Verify agent works with minimal policy
+
+See [Contributing](/operations/contributing) for detailed instructions.
+
+## Comparison Matrix
+
+| Agent | Language | Keychain | Network Default | Subprocess | UI |
+|-------|----------|----------|-----------------|------------|----|
+| Aider | Python | No | Denied | Shell | Terminal |
+| Amp | Bun | No | Denied | Shell | TUI |
+| Auggie | Node.js | No | Denied | Shell | TUI |
+| Claude Code | Rust | Yes | Denied | Sandboxed | TUI |
+| Cline | TypeScript | Yes | Denied | VS Code Terminal | Webview |
+| Codex | Rust | Yes | Denied | Sandboxed | TUI |
+| Copilot CLI | Node.js | Yes | Denied | Shell | Terminal |
+| Cursor Agent | Electron | Yes | Denied | Shell | Electron |
+| Droid | Bun | No | Denied | Shell | TUI |
+| Gemini CLI | Node.js | Yes | Denied | Shell | TUI |
+| Goose | Rust | Yes | Denied | Shell | TUI |
+| Kilo Code | TypeScript | Yes | Denied | VS Code Terminal | Webview |
+| OpenCode | Node.js | No | Denied | Shell | TUI |
+| Pi | Node.js | No | Denied | Shell | Custom TUI |
+
+## Special Integration Notes
+
+### VS Code Extensions (Cline, Kilo Code)
+
+VS Code extensions run in the Extension Host process, inheriting VS Code's sandbox. Safehouse **cannot** directly sandbox VS Code extensions. Instead:
+
+- Use `--add-dirs` to restrict workspace access via VS Code's file watchers
+- Extensions inherit VS Code's network policy
+- Terminal commands spawn through VS Code's Terminal API
+
+For stronger isolation, run VS Code itself in a container.
+
+### Electron Apps (Cursor)
+
+Electron apps have their own Chromium sandbox. Safehouse profiles grant access to:
+
+- App bundle (`/Applications/Cursor.app`)
+- Application Support directories
+- Temp directories for IPC
+
+Cursor's agent mode runs within the Electron renderer with standard Chromium isolation.
+
+### Rust Agents (Codex, Goose)
+
+Rust agents (Codex, Goose) have **built-in sandboxing**:
+
+- **Codex** uses `sandbox-exec` (macOS Seatbelt) for its own tool calls
+- **Goose** has no built-in sandbox but is compiled native code
+
+Safehouse profiles grant access to their binaries and config paths. The agent's own sandboxing is orthogonal.

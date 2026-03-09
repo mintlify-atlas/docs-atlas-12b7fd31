@@ -1,0 +1,293 @@
+---
+title: "Aider"
+description: "Python-based AI coding assistant with terminal UI, Streamlit web GUI, and extensive LLM provider support"
+---
+
+## Overview
+
+Aider is a Python-based AI coding assistant (`aider-chat` package) that runs as a terminal CLI with an optional Streamlit web GUI. It provides file editing, shell command execution, web scraping, and git integration through a prompt_toolkit/rich-based REPL.
+
+<Info>
+**Installation:** `pipx install aider-chat`  
+**Binary path:** `~/.local/bin/aider`  
+**Config:** `~/.aider/`, `<git_root>/.aider.conf.yml`  
+**Version:** 0.86.3.dev (Apache-2.0 license, open source)
+</Info>
+
+## Sandbox Profile
+
+The Aider profile (`profiles/60-agents/aider.sb`) grants access to:
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/aider")
+    (home-prefix "/.local/bin/aider-install")
+    (home-prefix "/.aider")
+    (home-literal "/.aider.conf.yml")
+    (home-literal "/.aider.model.settings.yml")
+    (home-literal "/.aider.model.metadata.json")
+    (home-subpath "/.config/aider")
+    (home-subpath "/.cache/aider")
+    (home-subpath "/.local/share/aider")
+)
+```
+
+### Key Paths
+
+| Path | Purpose |
+|------|--------|
+| `~/.local/bin/aider` | pipx-installed binary |
+| `~/.aider/` | Main config/data directory |
+| `~/.aider/analytics.json` | Analytics UUID + opt-in state |
+| `~/.aider/oauth-keys.env` | OAuth-obtained API keys (OpenRouter) |
+| `~/.aider/caches/` | Model pricing, version check, help index |
+| `<git_root>/.aider.input.history` | Readline history (prompt_toolkit) |
+| `<git_root>/.aider.chat.history.md` | Markdown chat log |
+| `<git_root>/.aider.tags.cache.v4/` | SQLite-based repo map cache (diskcache) |
+
+## Running Aider in Safehouse
+
+### Basic Usage
+
+```bash
+# Read-only mode (no file edits, no shell commands)
+safehouse -- aider
+
+# Allow workspace modifications
+safehouse --add-dirs=$PWD -- aider
+
+# With network for LLM API calls
+safehouse --enable=network --add-dirs=$PWD -- aider
+```
+
+### Shell Function Wrapper
+
+Add to `~/.zshrc`:
+
+```bash
+aider() {
+    safehouse --enable=network --add-dirs="$PWD" -- \
+        ~/.local/bin/aider "$@"
+}
+```
+
+## Authentication
+
+Aider stores credentials in **plain files** (no keychain):
+
+| Method | Location | Format |
+|--------|----------|--------|
+| OAuth keys | `~/.aider/oauth-keys.env` | Dotenv (`KEY="value"`) |
+| .env files | `~/.env`, `<git_root>/.env`, `./.env` | Dotenv |
+| YAML config | `.aider.conf.yml` (CWD, git root, `~`) | YAML |
+| Environment | `*_API_KEY` env vars | Various |
+
+### OAuth Flows
+
+**OpenRouter OAuth** (browser + localhost callback):
+- Binds HTTP server on `localhost:8484-8584`
+- Opens browser to `https://openrouter.ai/auth`
+- Saves key to `~/.aider/oauth-keys.env`
+
+**GitHub Copilot Token Exchange:**
+- Exchanges `GITHUB_COPILOT_TOKEN` for ephemeral OpenAI key
+- Endpoint: `https://api.github.com/copilot_internal/v2/token`
+
+### Sandbox Considerations
+
+Aider's OAuth flow requires:
+
+```bash
+# Enable network for OAuth callback server
+safehouse --enable=network --add-dirs="$HOME/.aider" -- aider
+```
+
+The default sandbox **blocks port binding**. For OAuth, use `--append-profile` with a custom policy allowing `network-bind`.
+
+## Capabilities
+
+### LLM Tools
+
+Aider provides these capabilities to the LLM:
+
+1. **File editing** -- Whole file replacement, diff-based edits, search/replace blocks
+2. **Shell commands** -- Via `/run` and `/test` (user-invoked, LLM suggests)
+3. **Git operations** -- Auto-commits via GitPython
+4. **Web scraping** -- `/web` command fetches URLs, optionally uses Playwright
+5. **Linting** -- `/lint` runs flake8 or configured linters
+6. **Voice input** -- `/voice` records audio and transcribes via OpenAI Whisper API
+
+<Warning>
+Aider's `/run` and `/test` commands execute shell commands with full user privileges. The LLM can **suggest** commands but cannot execute them autonomously. Always review commands before running.
+</Warning>
+
+### Subprocess Execution
+
+Aider spawns subprocesses for:
+
+| Tool | Purpose |
+|------|--------|
+| `git` | Version control operations |
+| Shell commands | User-invoked via `/run` and `/test` |
+| `pip` | Runtime installation of optional dependencies |
+| `flake8` | Python linting |
+| System editor | Opens vim/vi/notepad for `/editor` command |
+| `pexpect` | Interactive command execution (non-Windows) |
+| Notification commands | `terminal-notifier`, `osascript`, `notify-send` |
+| `playwright` | Optional browser automation |
+
+## Network Access
+
+### Required Endpoints
+
+| Endpoint | Purpose |
+|----------|--------|
+| LLM API endpoints (via litellm) | Chat completions (100+ providers) |
+| `https://pypi.org/pypi/aider-chat/json` | Version check (1x/day) |
+| `https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json` | Model pricing |
+| `https://openrouter.ai/api/v1/*` | OpenRouter OAuth and API |
+| `https://api.github.com/copilot_internal/v2/token` | GitHub Copilot token exchange |
+| `https://us.i.posthog.com` | Analytics (PostHog) |
+| Arbitrary URLs | Web scraping via `/web` command |
+
+### Disabling Analytics
+
+```bash
+# Disable analytics before first run
+aider --no-analytics
+
+# Or set in config
+echo "analytics: false" >> ~/.aider.conf.yml
+```
+
+## Special Integrations
+
+### Streamlit Web GUI
+
+Aider's `--gui` mode launches a Streamlit web server:
+
+```bash
+# NOT RECOMMENDED in sandbox (requires port binding)
+aider --gui
+```
+
+Streamlit binds to `localhost:8501` (default). The sandbox **blocks** this by default. For web GUI:
+
+```bash
+# Custom policy allowing Streamlit port
+safehouse --append-profile=<(cat <<'EOF'
+(allow network-bind (local tcp "localhost:8501"))
+EOF
+) --enable=network -- aider --gui
+```
+
+### Playwright (Web Scraping)
+
+The `/web` command can use Playwright for JavaScript-rendered pages:
+
+```bash
+pipx install aider-chat[playwright]
+playwright install chromium
+```
+
+Playwright downloads Chromium to `~/.cache/ms-playwright/`. The sandbox profile does **not** grant this by default. Add:
+
+```bash
+safehouse --add-dirs-ro="$HOME/.cache/ms-playwright" \
+    --enable=network --add-dirs="$PWD" -- aider
+```
+
+## Configuration Files
+
+### Search Order (Highest Priority First)
+
+1. `--env-file` (CLI arg)
+2. `./.env` (current directory)
+3. `<git_root>/.env`
+4. `~/.env`
+5. `~/.aider/oauth-keys.env`
+
+### Config File Search
+
+1. `.aider.conf.yml` in CWD
+2. `.aider.conf.yml` in git root
+3. `~/.aider.conf.yml`
+
+### Project Files
+
+| File | Purpose |
+|------|--------|
+| `<git_root>/.aiderignore` | gitignore-style exclusion patterns |
+| `<git_root>/.aider.tags.cache.v4/` | diskcache SQLite database for repo map |
+
+## Security Considerations
+
+<Warning>
+**Aider has NO built-in sandboxing.** All operations run with full user privileges.
+</Warning>
+
+### Attack Surface
+
+1. **Shell command execution** -- `/run` and `/test` commands execute with `shell=True`
+2. **Runtime pip installs** -- Can download and run arbitrary Python code
+3. **Clipboard polling** -- When `--copy-paste` enabled, polls every 0.5 seconds
+4. **Git operations** -- Can modify `.gitignore`, git config, commit history
+5. **File access** -- Unrestricted read/write (advisory `.aiderignore`)
+6. **Network access** -- Makes requests to 10+ endpoints, arbitrary URLs via `/web`
+7. **Analytics** -- PostHog enabled by default
+
+### Recommended Safehouse Policy
+
+```bash
+# Minimal policy for coding tasks
+safehouse \
+    --add-dirs="$PWD" \
+    --enable=network \
+    --append-profile=<(cat <<'EOF'
+; Block .git/hooks/ modification
+(deny file-write*
+    (subpath (string-append (param "WORKDIR") "/.git/hooks")))
+; Block OAuth ports (use API keys instead)
+(deny network-bind)
+EOF
+) -- aider "$@"
+```
+
+## Troubleshooting
+
+### "Cannot write to ~/.aider/analytics.json"
+
+The sandbox blocks writes outside the workspace. Disable analytics:
+
+```bash
+aider --no-analytics
+```
+
+Or grant access:
+
+```bash
+safehouse --add-dirs="$HOME/.aider" -- aider
+```
+
+### "OAuth callback server failed to bind"
+
+The sandbox blocks port binding. Use API keys instead of OAuth:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+safehouse --enable=network -- aider
+```
+
+### "Git operations fail"
+
+Git requires workspace write access:
+
+```bash
+safehouse --add-dirs="$PWD" -- aider
+```
+
+## Links
+
+- **Repository:** [github.com/Aider-AI/aider](https://github.com/Aider-AI/aider)
+- **Documentation:** [aider.chat/docs](https://aider.chat/docs)
+- **PyPI:** [pypi.org/project/aider-chat](https://pypi.org/project/aider-chat)

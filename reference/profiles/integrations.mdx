@@ -1,0 +1,432 @@
+---
+title: "Integration Profiles"
+description: "Git, Docker, Kubernetes, SSH, clipboard, and other development tool integrations"
+---
+
+Integration profiles enable agents to interact with development tools, system services, and external platforms. They're split into **core integrations** (always enabled) and **optional integrations** (opt-in via `--enable`).
+
+## Core Integrations (Always Enabled)
+
+These integrations are included in every Agent Safehouse policy:
+
+<CardGroup cols={2}>
+  <Card title="Git" icon="git-alt" iconType="brands">
+    Git configuration and SSH keys for git-over-ssh
+  </Card>
+  <Card title="SCM CLIs" icon="github" iconType="brands">
+    GitHub CLI (`gh`) and GitLab CLI (`glab`)
+  </Card>
+  <Card title="Launch Services" icon="rocket">
+    macOS UTI resolution and app launching
+  </Card>
+  <Card title="Container Runtime Deny" icon="ban">
+    Default-deny for Docker/Podman (must be explicitly enabled)
+  </Card>
+</CardGroup>
+
+### Git Integration
+
+The Git profile provides read-only access to Git configuration and minimal SSH metadata:
+
+<CodeGroup>
+```scheme git.sb
+(allow file-read*
+    (home-prefix "/.gitconfig")        ;; User gitconfig variants
+    (home-prefix "/.gitignore")        ;; Global gitignore variants
+    (home-subpath "/.config/git")      ;; XDG-style git config
+    (home-literal "/.gitattributes")   ;; Global gitattributes
+    (home-literal "/.ssh")             ;; Directory traversal
+    (home-literal "/.ssh/config")      ;; SSH host aliases
+    (home-literal "/.ssh/known_hosts") ;; Host key verification
+)
+```
+</CodeGroup>
+
+<Note>
+  The Git profile does NOT grant access to SSH private keys. For SSH key access, enable the SSH integration with `--enable=ssh`.
+</Note>
+
+### SCM CLI Integration
+
+GitHub CLI (`gh`) and GitLab CLI (`glab`) for repository automation:
+
+<CodeGroup>
+```scheme scm-clis.sb
+(allow file-read* file-write*
+    ;; GitHub CLI
+    (home-subpath "/.config/gh")       ;; gh auth tokens/config
+    (home-subpath "/.cache/gh")        ;; gh command cache
+    (home-subpath "/.local/share/gh")  ;; gh extensions
+    (home-subpath "/.local/state/gh")  ;; gh runtime state
+
+    ;; GitLab CLI
+    (home-subpath "/.config/glab-cli")
+    (home-subpath "/.cache/glab-cli")
+    (home-subpath "/.local/share/glab-cli")
+)
+```
+</CodeGroup>
+
+<Warning>
+  Agents can read and write `gh` and `glab` authentication tokens. Treat agent access with appropriate caution for production repositories.
+</Warning>
+
+## Optional Integrations
+
+Optional integrations must be explicitly enabled with `--enable=<name>`:
+
+### Docker
+
+**Enable with:** `--enable=docker`
+
+Grants access to Docker daemon sockets and configuration:
+
+<CodeGroup>
+```scheme docker.sb
+(allow file-read* file-write*
+    (literal "/var/run/docker.sock")          ;; Standard Docker socket
+    (home-literal "/.docker/run/docker.sock") ;; Docker Desktop socket
+    (home-literal "/.orbstack/run/docker.sock") ;; OrbStack socket
+    (home-subpath "/.docker")                 ;; Docker config/contexts
+    (home-subpath "/.colima")                 ;; Colima runtime state
+    (home-literal "/.rd/docker.sock")         ;; Rancher Desktop
+)
+```
+
+```bash Example Usage
+./bin/safehouse.sh --enable=docker -- docker ps
+./bin/safehouse.sh --enable=docker -- docker-compose up
+```
+</CodeGroup>
+
+<Warning>
+  Docker socket access is **high-risk**: containers can mount host filesystems and execute arbitrary code. Only enable if your agent workflow requires container operations.
+</Warning>
+
+### Kubernetes (kubectl)
+
+**Enable with:** `--enable=kubectl`
+
+Grants access to kubeconfig, cluster certificates, and kubectl cache:
+
+<CodeGroup>
+```scheme kubectl.sb
+(allow file-read*
+    (home-subpath "/.kube")   ;; kubeconfig and certificates
+    (home-subpath "/.krew")   ;; kubectl plugin manager
+)
+
+(allow file-write*
+    (home-literal "/.kube/config")      ;; kubectl config updates
+    (home-subpath "/.kube/cache")       ;; kubectl cache
+    (home-subpath "/.krew")             ;; krew plugin installs
+)
+```
+
+```bash Example Usage
+./bin/safehouse.sh --enable=kubectl -- kubectl get pods
+./bin/safehouse.sh --enable=kubectl -- kubectl apply -f deploy.yaml
+```
+</CodeGroup>
+
+### SSH
+
+**Enable with:** `--enable=ssh`
+
+Grants access to SSH agent sockets while **blocking private key access**:
+
+<CodeGroup>
+```scheme ssh.sb
+;; Defense-in-depth: block private key reads
+(deny file-read* file-write*
+    (home-subpath "/.ssh")  ;; Block SSH keys
+)
+
+;; Allow SSH metadata
+(allow file-read*
+    (home-literal "/.ssh/known_hosts")
+    (home-literal "/.ssh/config")
+    (home-subpath "/.ssh/config.d")
+    (literal "/private/etc/ssh/ssh_config")
+)
+
+;; SSH agent socket access
+(allow file-read* file-write*
+    (regex #"^/private/tmp/com\.apple\.launchd\.[^/]+/Listeners$")
+)
+```
+
+```bash Example Usage
+./bin/safehouse.sh --enable=ssh -- ssh-add -l
+./bin/safehouse.sh --enable=ssh -- git push origin main
+```
+</CodeGroup>
+
+<Info>
+  The SSH profile uses **defense-in-depth**: it blocks `~/.ssh` entirely, then selectively allows non-sensitive files like `config` and `known_hosts`. Private keys remain inaccessible.
+</Info>
+
+### Clipboard
+
+**Enable with:** `--enable=clipboard`
+
+Grants access to macOS pasteboard for `pbcopy` and `pbpaste`:
+
+<CodeGroup>
+```scheme clipboard.sb
+(allow mach-lookup
+    (global-name "com.apple.pasteboard.1")  ;; Pasteboard service
+    (global-name "com.apple.lsd.mapdb")     ;; Type lookups for pbcopy
+)
+```
+
+```bash Example Usage
+./bin/safehouse.sh --enable=clipboard -- echo "hello" | pbcopy
+./bin/safehouse.sh --enable=clipboard -- pbpaste
+```
+</CodeGroup>
+
+### Other Optional Integrations
+
+<Accordion title="Process Control">
+  **Enable with:** `--enable=process-control`
+  
+  Grants broader process introspection and control beyond the sandbox:
+  - `process-info-pidinfo`: Monitor all processes
+  - `process-info-setcontrol`: Control process metadata
+  
+  **Use case:** Debugging multi-process workflows
+</Accordion>
+
+<Accordion title="Shell Init">
+  **Enable with:** `--enable=shell-init`
+  
+  Allows reading shell startup files:
+  - `~/.bashrc`, `~/.bash_profile`, `~/.zshrc`, `~/.zshenv`
+  - `~/.profile`, `~/.config/fish/config.fish`
+  
+  **Use case:** Agents that need shell environment customization
+</Accordion>
+
+<Accordion title="Keychain">
+  **Enable with:** `--enable=keychain`
+  
+  Grants access to macOS Keychain for reading stored credentials:
+  - `com.apple.SecurityServer`: Keychain daemon
+  - `com.apple.securityd`: Security services
+  
+  **Warning:** High-risk. Agents can read stored passwords and certificates.
+</Accordion>
+
+<Accordion title="Cloud Credentials">
+  **Enable with:** `--enable=cloud-credentials`
+  
+  Grants access to cloud provider credential files:
+  - `~/.aws` (AWS CLI)
+  - `~/.azure` (Azure CLI)
+  - `~/.config/gcloud` (Google Cloud)
+  - `~/.kube` (Kubernetes)
+  
+  **Warning:** High-risk. Agents can access cloud API credentials.
+</Accordion>
+
+<Accordion title="macOS GUI">
+  **Enable with:** `--enable=macos-gui`
+  
+  Grants accessibility and screen recording permissions for GUI automation:
+  - Accessibility API access
+  - Screen recording
+  - Window management
+  
+  **Use case:** Agents that control desktop applications
+</Accordion>
+
+<Accordion title="Spotlight">
+  **Enable with:** `--enable=spotlight`
+  
+  Grants access to macOS Spotlight search API:
+  - `com.apple.metadata.mds`: Spotlight daemon
+  
+  **Use case:** Agents that need file search via `mdfind`
+</Accordion>
+
+<Accordion title="LLDB">
+  **Enable with:** `--enable=lldb`
+  
+  Grants debugger access for native code debugging:
+  - LLDB configuration and scripts
+  - Debug symbol cache
+  
+  **Use case:** Agents debugging C/C++/Rust applications
+</Accordion>
+
+<Accordion title="Electron">
+  **Enable with:** `--enable=electron`
+  
+  Grants Electron app runtime permissions (implies `macos-gui`):
+  - Electron cache
+  - GPU/rendering services
+  
+  **Use case:** Running Electron-based agents or tools
+</Accordion>
+
+<Accordion title="Chromium (Headless)">
+  **Enable with:** `--enable=chromium-headless`
+  
+  Minimal Chromium permissions for headless browser automation:
+  - No GPU acceleration
+  - Minimal mach services
+  
+  **Use case:** Headless browser testing (Playwright, Puppeteer)
+</Accordion>
+
+<Accordion title="Chromium (Full)">
+  **Enable with:** `--enable=chromium-full`
+  
+  Full Chromium permissions including GPU and audio:
+  - GPU acceleration
+  - Audio output
+  - Camera/microphone (if needed)
+  
+  **Use case:** Full-featured browser automation
+</Accordion>
+
+<Accordion title="1Password">
+  **Enable with:** `--enable=1password`
+  
+  Grants access to 1Password CLI (`op`):
+  - `~/.config/op`
+  - `~/.cache/op`
+  
+  **Use case:** Agents retrieving secrets from 1Password
+</Accordion>
+
+## High-Risk Integrations
+
+Some integrations grant significant system access and should be used with caution:
+
+<CardGroup cols={2}>
+  <Card title="Docker" icon="docker" iconType="brands" color="#ef4444">
+    **Risk:** Container escape, host filesystem access
+    
+    **Mitigation:** Only enable for container workflows
+  </Card>
+  
+  <Card title="SSH" icon="key" color="#ef4444">
+    **Risk:** SSH agent access (not keys themselves)
+    
+    **Mitigation:** Private keys are blocked; only agent socket allowed
+  </Card>
+  
+  <Card title="Keychain" icon="lock" color="#ef4444">
+    **Risk:** Access to stored passwords and certificates
+    
+    **Mitigation:** Only enable if agent needs credential access
+  </Card>
+  
+  <Card title="Cloud Credentials" icon="cloud" color="#ef4444">
+    **Risk:** Cloud API access with user's permissions
+    
+    **Mitigation:** Monitor agent cloud operations closely
+  </Card>
+</CardGroup>
+
+## Multiple Integrations
+
+You can enable multiple integrations simultaneously:
+
+```bash
+./bin/safehouse.sh \
+  --enable=docker \
+  --enable=kubectl \
+  --enable=ssh \
+  --enable=clipboard \
+  -- ./my-devops-script.sh
+```
+
+## Integration Dependencies
+
+Some integrations automatically enable dependencies:
+
+- **`electron`** → implies `macos-gui`
+- **`chromium-full`** → implies GPU and audio services
+- **Agent profiles** → may imply `keychain` if they require credential access
+
+Dependencies are resolved automatically by the policy assembly system.
+
+## Authoring Custom Integration Profiles
+
+To create a custom integration:
+
+1. **Choose the right directory**:
+   - `50-integrations-core/`: Always enabled (use sparingly)
+   - `55-integrations-optional/`: Opt-in via `--enable`
+
+2. **Create your profile**: `profiles/55-integrations-optional/my-integration.sb`
+
+3. **Add standard header**:
+   ```scheme
+   ;; ---------------------------------------------------------------------------
+   ;; Integration: My Integration
+   ;; Brief description of what this integration enables.
+   ;; Source: 55-integrations-optional/my-integration.sb
+   ;; ---------------------------------------------------------------------------
+   ```
+
+4. **Grant minimal permissions**:
+   ```scheme
+   (allow file-read* file-write*
+       (home-subpath "/.config/my-integration")
+   )
+   ```
+
+5. **Consider defense-in-depth**:
+   ```scheme
+   ;; Block sensitive data first
+   (deny file-read* (home-subpath "/.my-integration/secrets"))
+   
+   ;; Then allow safe paths
+   (allow file-read* (home-subpath "/.my-integration"))
+   ```
+
+6. **Regenerate and test**:
+   ```bash
+   ./scripts/generate-dist.sh
+   ./tests/run.sh
+   ```
+
+<Warning>
+  Integration profiles should follow the principle of least privilege. Only grant the minimum permissions required for the integration to function.
+</Warning>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Enable only what you need" icon="filter">
+    Each integration increases the attack surface. Only enable integrations your workflow requires.
+  </Card>
+  
+  <Card title="Understand the risks" icon="triangle-exclamation">
+    Review the "High-Risk Integrations" section before enabling Docker, Keychain, or cloud credentials.
+  </Card>
+  
+  <Card title="Use defense-in-depth" icon="shield-halved">
+    When authoring integrations, deny sensitive paths first, then allow safe subsets.
+  </Card>
+  
+  <Card title="Test thoroughly" icon="vial">
+    Always test custom integrations with real workflows before deploying to production agents.
+  </Card>
+</CardGroup>
+
+## Related Profiles
+
+<CardGroup cols={2}>
+  <Card title="Toolchains" icon="wrench" href="/reference/profiles/toolchains">
+    Language-specific package managers and build tools
+  </Card>
+  
+  <Card title="System Runtime" icon="gears" href="/reference/profiles/system-runtime">
+    Foundation for process execution and system access
+  </Card>
+</CardGroup>

@@ -1,0 +1,41 @@
+---
+title: "Gemini CLI"
+description: "Google's Gemini-powered command-line agent"
+---
+
+## Overview
+
+Gemini CLI is Google's AI coding agent with keychain-based credential storage.
+
+<Info>
+**Binary path:** `~/.local/bin/gemini`  
+**Config:** `~/.gemini/`, `~/.cache/gemini/`  
+**Dependencies:** `$$require=55-integrations-optional/keychain.sb$$`
+</Info>
+
+## Sandbox Profile
+
+```scheme
+(allow file-read* file-write*
+    (home-prefix "/.local/bin/gemini")
+    (home-subpath "/.gemini")
+    (home-subpath "/.cache/gemini")
+)
+
+(allow file-read*
+    (subpath "/Library/Application Support/GeminiCli")
+)
+```
+
+## Running in Safehouse
+
+```bash
+# With keychain and network
+safehouse --enable=keychain,network --add-dirs="$PWD" -- gemini
+```
+
+## Enterprise Support
+
+- MDM-managed settings via `/Library/Application Support/GeminiCli`
+- Package-manager driven updates
+- System-wide config

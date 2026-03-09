@@ -1,0 +1,290 @@
+---
+title: "Shell Functions"
+description: "Recommended shell wrapper patterns for convenient Safehouse usage"
+icon: "terminal"
+---
+
+Shell functions provide a convenient way to set machine-specific defaults and create shorthand commands for running agents with Safehouse.
+
+## Why Use Shell Wrappers?
+
+If you work across multiple projects with shared dependencies, caches, or team folders in machine-specific locations, you'll want to keep those settings out of project config files.
+
+Shell wrappers let you:
+- Define machine-local defaults once
+- Create convenient shortcuts for common workflows
+- Keep machine-specific paths out of shared repositories
+- Reuse configurations across multiple agents and tools
+
+## Basic Pattern
+
+Add this to your shell configuration file (`~/.zshrc`, `~/.bashrc`, or equivalent):
+
+```bash ~/.zshrc
+# Generic safe wrapper with your machine defaults
+safe() {
+  safehouse \
+    --add-dirs-ro="$HOME/server" \
+    --add-dirs-ro="$HOME/shared-libs" \
+    "$@"
+}
+
+# Agent-specific shortcuts
+safe-claude() { safe claude --dangerously-skip-permissions "$@" }
+safe-cursor() { safe --enable=clipboard,macos-gui cursor "$@" }
+safe-aider() { safe aider "$@" }
+```
+
+Now you can run:
+
+```bash
+safe-claude  # Claude with your machine defaults
+safe-cursor  # Cursor with clipboard and GUI
+safe-aider   # Aider with your defaults
+```
+
+## Advanced Pattern with Append Profile
+
+For machine-local policy exceptions that can't be expressed with `--add-dirs` alone, use `--append-profile`:
+
+<Steps>
+
+<Step title="Create a local overrides profile">
+  Create a Sandbox Profile file for machine-specific rules:
+  
+  ```scheme ~/.config/agent-safehouse/local-overrides.sb
+  ;; Machine-local policy overrides
+  ;; These rules are appended last and override everything else
+  
+  (allow file-read*
+    (home-literal "/.gitignore_global")
+    (home-subpath "/Library/Application Support/CleanShot/media")
+    (subpath "/Volumes/Shared/Engineering")
+  )
+  
+  (allow file-write*
+    (home-subpath "/Documents/agent-logs")
+  )
+  ```
+</Step>
+
+<Step title="Set up shell function">
+  Add this to your `~/.zshrc`:
+  
+  ```bash ~/.zshrc
+  export SAFEHOUSE_APPEND_PROFILE="$HOME/.config/agent-safehouse/local-overrides.sb"
+  
+  safe() {
+    safehouse \
+      --add-dirs-ro="$HOME/server" \
+      --append-profile="$SAFEHOUSE_APPEND_PROFILE" \
+      "$@"
+  }
+  
+  safe-claude() { safe claude --dangerously-skip-permissions "$@" }
+  ```
+</Step>
+
+<Step title="Use your wrapper">
+  All invocations now include your machine-local overrides:
+  
+  ```bash
+  safe-claude  # Includes local-overrides.sb
+  safe -- aider  # Also includes local-overrides.sb
+  ```
+</Step>
+
+</Steps>
+
+<Info>
+  Use `--add-dirs-ro`/`--add-dirs` for normal folder access. Reserve `--append-profile` for machine-local policy exceptions or final deny/allow overrides.
+</Info>
+
+## Complete Example
+
+Here's a full-featured setup with multiple shortcuts:
+
+```bash ~/.zshrc
+# Machine-specific configuration
+export SAFEHOUSE_APPEND_PROFILE="$HOME/.config/agent-safehouse/local-overrides.sb"
+export SHARED_LIBS="$HOME/shared-libs"
+export TEAM_RESOURCES="/Volumes/Shared/Engineering"
+
+# Base safe wrapper with machine defaults
+safe() {
+  safehouse \
+    --add-dirs-ro="$SHARED_LIBS" \
+    --append-profile="$SAFEHOUSE_APPEND_PROFILE" \
+    "$@"
+}
+
+# Agent shortcuts
+safe-claude() {
+  safe claude --dangerously-skip-permissions "$@"
+}
+
+safe-cursor() {
+  safe --enable=clipboard,macos-gui cursor "$@"
+}
+
+safe-aider() {
+  safe --enable=clipboard aider "$@"
+}
+
+safe-codex() {
+  safe codex "$@"
+}
+
+# Workflow-specific wrappers
+safe-docker() {
+  safe --enable=docker "$@"
+}
+
+safe-k8s() {
+  safe --enable=kubectl "$@"
+}
+
+# Review mode (read-only, no workdir write access)
+safe-review() {
+  local project_path="${1:-.}"
+  shift || true
+  safe --workdir="" --add-dirs-ro="$project_path" -- "$@"
+}
+```
+
+**Usage examples:**
+
+```bash Agent shortcuts
+safe-claude         # Claude with machine defaults
+safe-cursor         # Cursor with GUI + clipboard
+safe-aider --model gpt-4  # Aider with defaults, custom args
+```
+
+```bash Workflow wrappers
+safe-docker -- docker compose up
+safe-k8s -- kubectl get pods
+```
+
+```bash Review mode
+safe-review ~/other-project claude  # Read-only access
+```
+
+## Per-Project Wrappers
+
+For projects with unique requirements, create project-specific scripts:
+
+```bash ~/my-project/scripts/safe-test.sh
+#!/bin/bash
+# Project-specific test runner with Safehouse
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+safehouse \
+  --add-dirs-ro="$HOME/test-fixtures" \
+  --add-dirs="/tmp/test-output" \
+  --enable=docker \
+  --env=.env.test \
+  -- npm test "$@"
+```
+
+Make it executable:
+
+```bash
+chmod +x ~/my-project/scripts/safe-test.sh
+```
+
+Run it:
+
+```bash
+./scripts/safe-test.sh
+```
+
+## Environment Variable Patterns
+
+Use environment variables for settings that apply to all Safehouse invocations:
+
+```bash ~/.zshrc
+# Always trust workdir config in your workspace directories
+export SAFEHOUSE_TRUST_WORKDIR_CONFIG=1
+
+# Always grant read access to shared resources
+export SAFEHOUSE_ADD_DIRS_RO="$HOME/shared:$HOME/references"
+
+# Always pass through these environment variables
+export SAFEHOUSE_ENV_PASS="AWS_PROFILE,GCP_PROJECT"
+```
+
+These apply even when you invoke `safehouse` directly without wrapper functions.
+
+<Warning>
+  Be careful with `SAFEHOUSE_TRUST_WORKDIR_CONFIG=1`. This trusts `.safehouse` config files in **all** directories you run Safehouse from, including untrusted repositories.
+</Warning>
+
+## App Launchers
+
+You can use shell functions to launch GUI apps through Safehouse:
+
+```bash ~/.zshrc
+safe-claude-app() {
+  safehouse --enable=macos-gui -- open -a "Claude"
+}
+
+safe-cursor-app() {
+  safehouse --enable=clipboard,macos-gui -- open -a "Cursor"
+}
+```
+
+**Usage:**
+
+```bash
+safe-claude-app  # Launches Claude.app in sandbox
+safe-cursor-app  # Launches Cursor.app in sandbox
+```
+
+<Tip>
+  For a better app launch experience, consider using the prebuilt launcher scripts in `dist/` or creating `.command` files that macOS can execute directly.
+</Tip>
+
+## Debugging Your Setup
+
+Use `--explain` to verify your wrapper configuration:
+
+```bash
+safe-claude --explain --stdout | head -20
+```
+
+This shows:
+- All path grants (from shell function and environment)
+- Loaded agent profiles
+- Optional integrations
+- Appended profile files
+
+## Tips and Best Practices
+
+<CardGroup cols={2}>
+
+<Card title="Keep It DRY" icon="code">
+  Define common options once in a base `safe()` function. Derive agent-specific functions from it.
+</Card>
+
+<Card title="Machine-Local Only" icon="computer">
+  Put shell functions in `~/.zshrc` or `~/.bashrc`, **not** in project repositories. These are machine-specific.
+</Card>
+
+<Card title="Use Append Profiles" icon="layer-group">
+  For complex machine-local rules, use `--append-profile` with a `.sb` file instead of long CLI arguments.
+</Card>
+
+<Card title="Document Assumptions" icon="book">
+  Add comments in your shell config explaining what paths like `$SHARED_LIBS` or `$TEAM_RESOURCES` are for.
+</Card>
+
+</CardGroup>
+
+## Related Resources
+
+- **[CLI Options Reference](/usage/cli-options)** - Full documentation of all flags
+- **[Workdir Config](/usage/workdir-config)** - Per-project `.safehouse` files
+- **[Basic Usage](/usage/basic-usage)** - Common workflows and patterns

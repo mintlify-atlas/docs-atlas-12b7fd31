@@ -1,97 +1,218 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Agent Safehouse"
+description: "Sandbox your LLM coding agents on macOS so they can only access the files and integrations they need"
 ---
 
-## Setting up
+<img
+  className="block dark:hidden"
+  src="https://media.brand.dev/8111cc93-722c-43cc-8e99-bd9e8bb4f224.svg"
+  alt="Agent Safehouse Hero"
+  style={{ width: '100px', marginBottom: '2rem' }}
+/>
+<img
+  className="hidden dark:block"
+  src="https://media.brand.dev/8111cc93-722c-43cc-8e99-bd9e8bb4f224.svg"
+  alt="Agent Safehouse Hero"
+  style={{ width: '100px', marginBottom: '2rem' }}
+/>
 
-Get your documentation site up and running in minutes.
+## Practical Security for AI Coding Agents
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+Agent Safehouse uses macOS `sandbox-exec` with composable policy profiles to reduce the blast radius when LLM coding agents run on your machine. It follows a deny-first model: start from deny-all, then allow only what the agent needs to do useful work.
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
+<CardGroup cols={2}>
   <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
+    title="Quick Start"
+    icon="rocket"
+    href="/quickstart"
   >
-    Edit your docs locally and preview them in real time.
+    Get up and running in 5 minutes with basic sandboxing
   </Card>
   <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
+    title="Installation"
+    icon="download"
+    href="/installation"
   >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+    Install the CLI and set up shell functions
   </Card>
   <Card
-    title="API documentation"
+    title="CLI Options"
     icon="terminal"
-    href="/api-reference/introduction"
+    href="/usage/cli-options"
   >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
-
-## Create beautiful pages
-
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+    Explore all available commands and flags
   </Card>
   <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
+    title="Agent Compatibility"
+    icon="robot"
+    href="/agents/overview"
   >
-    Add sample code to demonstrate how to use your product.
+    Check compatibility with 14+ coding agents
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card
+    title="Deny-First Security Model"
+    icon="shield-halved"
+  >
+    Start from deny-all and explicitly allow only what agents need. Reduces blast radius from prompt injection and confused deputy flows.
   </Card>
   <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
+    title="Composable Policy Profiles"
+    icon="layer-group"
   >
-    Display images and other media.
+    Modular `.sb` profiles for toolchains, integrations, and agents. Mix and match capabilities with `--enable` flags.
   </Card>
   <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
+    title="14+ Agent Profiles"
+    icon="users"
   >
-    Write once and reuse across your docs.
+    Pre-built profiles for Claude, Cursor, Aider, Goose, OpenCode, and more. Agent-specific grants applied automatically.
   </Card>
-</Columns>
+  <Card
+    title="Optional Integrations"
+    icon="plug"
+  >
+    Docker, kubectl, SSH, clipboard, 1Password, and more. Enable only what you need with fine-grained controls.
+  </Card>
+  <Card
+    title="Machine-Local Overrides"
+    icon="gear"
+  >
+    Append custom policy files for host-specific paths. Keep shared repo config separate from local exceptions.
+  </Card>
+  <Card
+    title="Workdir-Based Config"
+    icon="folder-tree"
+  >
+    Drop a `.safehouse` file in your repo to define project-specific policies. Trust and load with `--trust-workdir-config`.
+  </Card>
+</CardGroup>
 
-## Need inspiration?
+## What Gets Protected
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Note>
+Agent Safehouse denies access to sensitive paths by default. Agents cannot read SSH keys, shell startup files, browser profiles, or arbitrary home directory files unless explicitly granted.
+</Note>
+
+<CardGroup cols={3}>
+  <Card
+    title="SSH Keys"
+    icon="key"
+  >
+    `~/.ssh` private keys blocked by default
+  </Card>
+  <Card
+    title="Shell Init Files"
+    icon="terminal"
+  >
+    `.zshrc`, `.bashrc` require `--enable=shell-init`
+  </Card>
+  <Card
+    title="Browser Profiles"
+    icon="browser"
+  >
+    Profile data requires `--enable=browser-native-messaging`
+  </Card>
+  <Card
+    title="Clipboard Access"
+    icon="clipboard"
+  >
+    Clipboard requires `--enable=clipboard`
+  </Card>
+  <Card
+    title="Process Control"
+    icon="list-check"
+  >
+    Host process enumeration requires `--enable=process-control`
+  </Card>
+  <Card
+    title="Debugger Access"
+    icon="bug"
+  >
+    LLDB and task-port require `--enable=lldb`
+  </Card>
+</CardGroup>
+
+## Philosophy
+
+Agent Safehouse is designed around **practical least privilege**:
+
+- Start from deny-all
+- Allow only what the agent needs to do useful work
+- Keep developer workflows productive
+- Make risk reduction easy by default
+
+It is a **hardening layer**, not a perfect security boundary against a determined attacker.
+
+<Info>
+For a detailed comparison with VMs and containers, see [Isolation Models](/concepts/isolation-models).
+</Info>
+
+## Getting Started
+
+<Steps>
+  <Step title="Install the CLI">
+    Download and install the safehouse CLI to your local bin directory.
+    
+    ```bash
+    mkdir -p ~/.local/bin
+    curl -fsSL https://raw.githubusercontent.com/eugene1g/agent-safehouse/main/dist/safehouse.sh \
+      -o ~/.local/bin/safehouse
+    chmod +x ~/.local/bin/safehouse
+    ```
+  </Step>
+  
+  <Step title="Set up shell functions">
+    Add wrapper functions to your shell config for easy invocation.
+    
+    ```bash ~/.zshrc
+    safe() { safehouse --add-dirs-ro=~/mywork "$@"; }
+    claude() { safe claude --dangerously-skip-permissions "$@"; }
+    ```
+  </Step>
+  
+  <Step title="Run your first sandboxed agent">
+    Run an agent with automatic policy generation and sandboxing.
+    
+    ```bash
+    claude "Check the project structure"
+    ```
+  </Step>
+</Steps>
+
+## Learn More
+
+<CardGroup cols={2}>
+  <Card
+    title="Core Concepts"
+    icon="book"
+    href="/concepts/overview"
+  >
+    Understand the sandbox model, policy architecture, and design philosophy
+  </Card>
+  <Card
+    title="Usage Guide"
+    icon="map"
+    href="/usage/basic-usage"
+  >
+    Learn how to use CLI options, shell functions, and workdir config
+  </Card>
+  <Card
+    title="Policy Architecture"
+    icon="diagram-project"
+    href="/advanced/policy-architecture"
+  >
+    Deep dive into policy assembly, profile layers, and customization
+  </Card>
+  <Card
+    title="Debugging"
+    icon="bug"
+    href="/operations/debugging"
+  >
+    Debug sandbox denials with logs and policy inspection
+  </Card>
+</CardGroup>

@@ -1,0 +1,281 @@
+---
+title: Testing
+description: Run Agent Safehouse policy tests and validate sandbox behavior
+---
+
+Agent Safehouse includes a comprehensive test suite to verify policy behavior and prevent regressions. Tests use `sandbox-exec` to validate that allowed operations succeed and denied operations fail.
+
+## Running Tests
+
+<Warning>
+  Tests **must** run outside an existing sandbox. `sandbox-exec` cannot nest. If your terminal session is already sandboxed, tests will fail immediately.
+</Warning>
+
+Run the full test suite from the repository root:
+
+```bash
+./tests/run.sh
+```
+
+Expected output:
+
+```
+=== Default Workdir Access (No Git Root) ===
+  PASS  write and read file in CWD
+  PASS  create file in CWD
+  PASS  create directory in CWD
+
+=== Denied Writes Outside Default Workdir ===
+  PASS  write to HOME root
+  PASS  write to HOME directory outside grants
+
+===========================================
+  Total: 42  |  Pass: 40  |  Fail: 0  |  Skip: 2
+===========================================
+```
+
+<Info>
+  Skipped tests typically occur when optional dependencies (like `git`, `docker`, `kubectl`) are not installed on the test system.
+</Info>
+
+## Test Structure
+
+Tests are organized under `tests/sections/` by functional area:
+
+```
+tests/
+├── run.sh                    # Main test harness
+├── lib/
+│   ├── common.sh            # Assertion helpers
+│   └── setup.sh             # Environment setup
+└── sections/
+    ├── 10-filesystem.sh     # Workdir and path grant tests
+    ├── 20-integrations.sh   # git, Docker, kubectl tests
+    ├── 30-runtime.sh        # System runtime behavior
+    ├── 40-tooling.sh        # npm, cargo, Python tests
+    ├── 50-policy-behavior.sh # Policy assembly tests
+    ├── 60-wrapper-cli.sh    # CLI flag behavior
+    └── 70-cli-edge-cases.sh # Error handling tests
+```
+
+## Test Helpers
+
+All test sections use helpers from `tests/lib/common.sh`:
+
+<CodeGroup>
+
+```bash Allowed Operations
+# Assert that a command succeeds under the sandbox
+assert_allowed "$POLICY_PATH" "read from workdir" \
+  /bin/cat "${TEST_CWD}/file.txt"
+```
+
+```bash Denied Operations
+# Assert that a command is blocked by the sandbox
+assert_denied "$POLICY_PATH" "write outside workdir" \
+  /usr/bin/touch "${HOME}/blocked.txt"
+```
+
+```bash Conditional Tests
+# Skip test if dependency doesn't exist
+assert_allowed_if_exists "$POLICY_PATH" \
+  "run docker ps" \
+  "docker" \
+  docker ps
+```
+
+```bash Policy Content
+# Verify policy contains expected rule
+assert_policy_contains "$POLICY_PATH" \
+  "includes git profile" \
+  "file-read* (literal \"${HOME}/.gitconfig\")"
+```
+
+```bash Policy Ordering
+# Verify rule A appears before rule B
+assert_policy_order_literal "$POLICY_PATH" \
+  "base rules before overrides" \
+  "#safehouse-test-id:00-base#" \
+  "#safehouse-test-id:60-agents#"
+```
+
+</CodeGroup>
+
+## Writing New Tests
+
+When adding or modifying policy behavior:
+
+<Steps>
+  <Step title="Create or update test section">
+    Add a new function in the appropriate `tests/sections/*.sh` file:
+
+    ```bash tests/sections/20-integrations.sh
+    run_section_integrations() {
+      section_begin "Git Integration"
+      assert_allowed "$POLICY_DEFAULT" \
+        "read .gitconfig" \
+        /bin/cat "${HOME}/.gitconfig"
+      
+      assert_allowed_if_exists "$POLICY_DEFAULT" \
+        "run git status" \
+        "git" \
+        git status
+    }
+    
+    register_section run_section_integrations
+    ```
+  </Step>
+
+  <Step title="Use descriptive test names">
+    Test descriptions should clearly state what behavior is being verified:
+
+    ✅ Good: `"write to --add-dirs path"`
+    
+    ❌ Bad: `"test 3"`
+  </Step>
+
+  <Step title="Run tests locally">
+    Validate your changes:
+
+    ```bash
+    ./tests/run.sh
+    ```
+  </Step>
+
+  <Step title="Register the section">
+    Always call `register_section` at the end of your test file:
+
+    ```bash
+    register_section run_section_integrations
+    ```
+  </Step>
+</Steps>
+
+## Policy Assembly Tests
+
+For changes to policy assembly logic or module dependencies, use structure and ordering assertions:
+
+```bash
+# Verify a profile was included
+assert_policy_contains "$POLICY_PATH" \
+  "includes docker profile" \
+  "mach-lookup (global-name \"com.docker.vmnetd\")"
+
+# Verify rule ordering (critical for deny-after-allow overrides)
+assert_policy_order_literal "$POLICY_PATH" \
+  "base rules load before integrations" \
+  "#safehouse-test-id:10-system-runtime#" \
+  "#safehouse-test-id:50-integrations-core#"
+```
+
+<Note>
+  The `#safehouse-test-id:*#` markers in `.sb` files are used by ordering tests. Preserve these when editing profiles.
+</Note>
+
+## CI Validation
+
+GitHub Actions runs tests automatically on:
+
+- All pull requests
+- Pushes to `main`
+- macOS runners only (sandbox-exec is macOS-specific)
+
+CI also validates that `dist/` artifacts are up-to-date when policy or runtime files change.
+
+## Test Environment
+
+The test harness (`tests/lib/setup.sh`) creates isolated directories:
+
+| Variable | Purpose |
+|----------|----------|
+| `TEST_CWD` | Temporary working directory for test commands |
+| `TEST_HOME_CANARY` | File path outside workdir (should be denied) |
+| `TEST_RO_DIR` | Directory used with `--add-dirs-ro` tests |
+| `TEST_RW_DIR` | Directory used with `--add-dirs` tests |
+| `TEST_GIT_REPO` | Temporary git repository for auto-detection tests |
+
+All test artifacts are cleaned up automatically on exit.
+
+## Preflight Checks
+
+The test runner performs these checks before starting:
+
+<Steps>
+  <Step title="Sandbox nesting check">
+    Verifies the current session is not already sandboxed (tests cannot run inside a sandbox).
+  </Step>
+
+  <Step title="Binary validation">
+    Confirms `sandbox-exec` is available and `bin/safehouse.sh` exists.
+  </Step>
+
+  <Step title="Environment setup">
+    Creates temporary directories and generates test policies.
+  </Step>
+</Steps>
+
+If preflight fails, tests exit with status `2` and an explanation.
+
+## Debugging Test Failures
+
+<CardGroup cols={2}>
+  <Card title="Check policy contents" icon="file-lines">
+    Generated test policies are in `/tmp/safehouse-test-*/`:
+
+    ```bash
+    cat /tmp/safehouse-test-*/policy-default.sb
+    ```
+  </Card>
+
+  <Card title="Run commands manually" icon="terminal">
+    Execute test commands directly with `sandbox-exec`:
+
+    ```bash
+    sandbox-exec -f /tmp/policy.sb -- touch /tmp/test.txt
+    ```
+  </Card>
+
+  <Card title="Watch denial logs" icon="eye">
+    Stream sandbox denials while running tests:
+
+    ```bash
+    /usr/bin/log stream --predicate 'eventMessage CONTAINS "deny("'
+    ```
+  </Card>
+
+  <Card title="Verify outside sandbox" icon="check">
+    Confirm the command works unsandboxed:
+
+    ```bash
+    touch /tmp/test.txt  # Should succeed
+    ```
+  </Card>
+</CardGroup>
+
+## E2E and Live Agent Tests
+
+For heavier integration testing:
+
+```bash
+# Terminal-based workflow simulation
+./tests/e2e/run.sh
+
+# Real agent CLI testing (requires API keys)
+export ANTHROPIC_API_KEY="..."
+./tests/e2e/live/run.sh
+```
+
+<Warning>
+  E2E and live agent tests may incur API usage costs and are not run by default in CI.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Debugging" href="/operations/debugging" icon="bug">
+    Diagnose sandbox denial events
+  </Card>
+  <Card title="Contributing" href="/operations/contributing" icon="code-pull-request">
+    Learn the development workflow and PR process
+  </Card>
+</CardGroup>
