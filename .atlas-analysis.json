@@ -1,0 +1,135 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Agent Safehouse",
+  "projectDescription": "Sandbox your LLM coding agents on macOS so they can only access the files and integrations they need",
+  "theme": "aspen",
+  "primaryColor": "#3c8bf4",
+  "lightColor": "#2c5cac",
+  "darkColor": "#3bb24e",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/overview",
+              "concepts/philosophy",
+              "concepts/isolation-models",
+              "concepts/default-assumptions"
+            ]
+          },
+          {
+            "group": "Usage",
+            "pages": [
+              "usage/basic-usage",
+              "usage/cli-options",
+              "usage/shell-functions",
+              "usage/workdir-config"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/policy-architecture",
+              "advanced/customization",
+              "advanced/custom-profiles",
+              "advanced/distribution"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/debugging",
+              "operations/testing",
+              "operations/contributing"
+            ]
+          },
+          {
+            "group": "Agent Compatibility",
+            "pages": [
+              "agents/overview",
+              "agents/aider",
+              "agents/amp",
+              "agents/auggie",
+              "agents/claude-code",
+              "agents/cline",
+              "agents/codex",
+              "agents/copilot-cli",
+              "agents/cursor-agent",
+              "agents/droid",
+              "agents/gemini-cli",
+              "agents/goose",
+              "agents/kilo-code",
+              "agents/opencode",
+              "agents/pi"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "reference/commands",
+              "reference/options",
+              "reference/integrations"
+            ]
+          },
+          {
+            "group": "Policy Profiles",
+            "pages": [
+              "reference/profiles/base",
+              "reference/profiles/system-runtime",
+              "reference/profiles/toolchains",
+              "reference/profiles/integrations"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "reference/prior-art",
+              "reference/troubleshooting",
+              "reference/faq"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "macOS sandbox-exec wrapper with deny-first security model",
+    "Composable policy profiles for fine-grained access control",
+    "Support for 14+ coding agents (Claude, Cursor, Aider, Goose, etc.)",
+    "Modular integration system (Docker, kubectl, SSH, clipboard, 1Password, etc.)",
+    "CLI-driven path grants and feature toggles",
+    "Machine-specific local overrides and appended profiles",
+    "Workdir-based .safehouse config files for project-specific policies",
+    "Deterministic policy generation and distribution artifacts"
+  ],
+  "publicApiSurface": [
+    "safehouse - Generate sandbox policy for current directory",
+    "safehouse --stdout - Print policy text to stdout",
+    "safehouse -- <command> - Execute command inside sandbox",
+    "safehouse --enable=<features> - Enable optional integrations (docker, kubectl, macos-gui, electron, ssh, clipboard, 1password, etc.)",
+    "safehouse --add-dirs-ro=<paths> - Add read-only directory access",
+    "safehouse --add-dirs=<paths> - Add read-write directory access",
+    "safehouse --append-profile=<file> - Append custom policy file",
+    "safehouse --trust-workdir-config - Trust .safehouse config in working directory",
+    "safehouse --workdir=<path> - Override working directory for policy generation",
+    "safehouse --explain - Show detailed policy selection and grants",
+    "safehouse --env - Pass full environment to sandboxed command",
+    "safehouse --env-pass=<vars> - Pass specific environment variables"
+  ]
+}
