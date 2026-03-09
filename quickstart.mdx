@@ -1,0 +1,92 @@
+---
+title: "Quickstart"
+description: "Get Agent Safehouse running in 5 minutes"
+icon: "rocket"
+---
+
+This guide gets you from zero to a sandboxed agent in about 5 minutes. We'll install the CLI, generate your first policy, and run a sandboxed coding agent.
+
+## Prerequisites
+
+- macOS (Monterey 12.0 or later recommended)
+- Terminal access with `bash` or `zsh`
+- An LLM coding agent installed (Claude, Cursor, Aider, etc.)
+
+<Note>
+Assuming you've already [installed](/installation) the `safehouse` CLI. If not, run:
+```bash
+mkdir -p ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/eugene1g/agent-safehouse/main/dist/safehouse.sh \
+  -o ~/.local/bin/safehouse
+chmod +x ~/.local/bin/safehouse
+```
+</Note>
+
+## Your First Sandboxed Agent
+
+<Steps>
+  <Step title="Navigate to a project directory">
+    Safehouse automatically detects your working directory and grants access to it.
+    
+    ```bash
+    cd ~/myproject
+    ```
+  </Step>
+  
+  <Step title="Run your agent">
+    Run your agent inside the sandbox:
+    
+    ```bash
+    safehouse -- claude --dangerously-skip-permissions
+    ```
+    
+    The agent can read and write files in your project, use toolchains, and access the network, but cannot touch SSH keys or shell startup files.
+  </Step>
+  
+  <Step title="Verify protection works">
+    Test that sensitive files are blocked:
+    
+    ```bash
+    safehouse -- cat ~/.ssh/id_rsa
+    ```
+    
+    This should fail with `Operation not permitted`.
+  </Step>
+</Steps>
+
+## Common Workflows
+
+### Grant Additional Directories
+
+```bash
+safehouse --add-dirs-ro=~/shared-libs -- claude --dangerously-skip-permissions
+```
+
+### Enable Docker
+
+```bash
+safehouse --enable=docker -- claude --dangerously-skip-permissions
+```
+
+### Pass Environment Variables
+
+```bash
+safehouse --env-pass=OPENAI_API_KEY,ANTHROPIC_API_KEY -- aider
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/concepts/overview">
+    Understand the sandbox model
+  </Card>
+  <Card title="CLI Options" icon="terminal" href="/usage/cli-options">
+    Explore all available flags
+  </Card>
+  <Card title="Agent Compatibility" icon="robot" href="/agents/overview">
+    Check setup guides for 14+ agents
+  </Card>
+  <Card title="Policy Architecture" icon="diagram-project" href="/advanced/policy-architecture">
+    Deep dive into policy assembly
+  </Card>
+</CardGroup>
